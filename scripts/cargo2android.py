@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Copyright (C) 2019 The Android Open Source Project
 #
@@ -27,15 +27,8 @@ The Cargo.toml file should work at least for the host platform.
     --device flag, for example:
     cargo2android.py --run --device
 
-    This is equivalent to using the --cargo flag to add extra builds:
-    cargo2android.py --run
-      --cargo "build"
-      --cargo "build --target x86_64-unknown-linux-gnu"
-
-    On MacOS, use x86_64-apple-darwin as target triple.
-    Here the host target triple is used as a fake cross compilation target.
-    If the crate's Cargo.toml and environment configuration works for an
-    Android target, use that target triple as the cargo build flag.
+    Note that cargo build is only called once with the default target
+    x86_64-unknown-linux-gnu.
 
 (3) To build default and test crates, for host and device, use both
     --device and --tests flags:
@@ -43,8 +36,6 @@ The Cargo.toml file should work at least for the host platform.
 
     This is equivalent to using the --cargo flag to add extra builds:
     cargo2android.py --run
-      --cargo "build"
-      --cargo "build --tests"
       --cargo "build --target x86_64-unknown-linux-gnu"
       --cargo "build --tests --target x86_64-unknown-linux-gnu"
 
@@ -58,10 +49,12 @@ a warning comment to the owner crate module in Android.bp.
 from __future__ import print_function
 
 import argparse
+import glob
 import os
 import os.path
 import platform
 import re
+import shutil
 import sys
 
 # Some Rust packages include extra unwanted crates.
@@ -72,8 +65,10 @@ RENAME_MAP = {
     # This map includes all changes to the default rust module names
     # to resolve name conflicts, avoid confusion, or work as plugin.
     'libbacktrace': 'libbacktrace_rust',
+    'libbase': 'libbase_rust',
     'libgcc': 'libgcc_rust',
     'liblog': 'liblog_rust',
+    'libminijail': 'libminijail_rust',
     'libsync': 'libsync_rust',
     'libx86_64': 'libx86_64_rust',
     'protoc_gen_rust': 'protoc-gen-rust',
@@ -208,11 +203,10 @@ class TestMapping(object):
         if not is_first:  # add comma and '\n' after the previous entry
           outf.write(',\n')
         is_first = False
-        outf.write('    {\n      "name": "' + name + '"')
+        outf.write('    {\n')
         if host:
-          outf.write(',\n      "host": true\n    }')
-        else:
-          outf.write('\n    }')
+          outf.write('      "host": true,\n')
+        outf.write('      "name": "' + name + '"' + '\n    }')
       outf.write('\n  ]\n}\n')
 
 
@@ -303,16 +297,13 @@ class Crate(object):
 
   def merge(self, other, outf_name):
     """Try to merge crate into self."""
+    # Cargo build --tests could recompile a library for tests.
+    # We need to merge such duplicated calls to rustc, with
+    # the algorithm in merge_host_device.
     should_merge_host_device = self.merge_host_device(other)
     should_merge_test = False
     if not should_merge_host_device:
       should_merge_test = self.merge_test(other)
-    # A for-device test crate can be merged with its for-host version,
-    # or merged with a different test for the same host or device.
-    # Since we run cargo once for each device or host, test crates for the
-    # first device or host will be merged first. Then test crates for a
-    # different device or host should be allowed to be merged into a
-    # previously merged one, maybe for a different device or host.
     if should_merge_host_device or should_merge_test:
       self.runner.init_bp_file(outf_name)
       with open(outf_name, 'a') as outf:  # to write debug info
@@ -330,8 +321,6 @@ class Crate(object):
       self.write('\n// Before merge definition (2):')
       other.dump_debug_info()
     # Merge properties of other to self.
-    self.host_supported = self.host_supported or other.host_supported
-    self.device_supported = self.device_supported or other.device_supported
     self.has_warning = self.has_warning or other.has_warning
     if not self.target:  # okay to keep only the first target triple
       self.target = other.target
@@ -365,9 +354,13 @@ class Crate(object):
         dir_name = os.path.dirname(dir_name)
 
   def add_codegens_flag(self, flag):
-    # ignore options not used in Android
+    """Ignore options not used in Android."""
     # 'prefer-dynamic' does not work with common flag -C lto
-    if not (flag.startswith('debuginfo=') or
+    # 'embed-bitcode' is ignored; we might control LTO with other .bp flag
+    # 'codegen-units' is set in Android global config or by default
+    if not (flag.startswith('codegen-units=') or
+            flag.startswith('debuginfo=') or
+            flag.startswith('embed-bitcode=') or
             flag.startswith('extra-filename=') or
             flag.startswith('incremental=') or
             flag.startswith('metadata=') or
@@ -450,10 +443,13 @@ class Crate(object):
         self.main_src = re.sub(r'^\.\.\./github.com-[0-9a-f]*/', '.../',
                                self.main_src)
         self.find_cargo_dir()
-        if self.cargo_dir and not self.runner.args.onefile:
-          # Write to Android.bp in the subdirectory with Cargo.toml.
-          self.outf_name = self.cargo_dir + '/Android.bp'
-          self.main_src = self.main_src[len(self.cargo_dir) + 1:]
+        if self.cargo_dir:  # for a subdirectory
+          if self.runner.args.no_subdir:  # all .bp content to /dev/null
+            self.outf_name = '/dev/null'
+          elif not self.runner.args.onefile:
+            # Write to Android.bp in the subdirectory with Cargo.toml.
+            self.outf_name = self.cargo_dir + '/Android.bp'
+            self.main_src = self.main_src[len(self.cargo_dir) + 1:]
       else:
         self.errors += 'ERROR: unknown ' + arg + '\n'
       i += 1
@@ -476,11 +472,8 @@ class Crate(object):
         self.errors += 'ERROR: cannot generate both lib and rlib crate types\n'
     if not self.root_pkg:
       self.root_pkg = self.crate_name
-    if self.target:
-      self.device_supported = True
-    self.host_supported = True  # assume host supported for all builds
-    if self.runner.args.no_host:  # unless --no-host was specified
-      self.host_supported = False
+    self.device_supported = self.runner.args.device
+    self.host_supported = not self.runner.args.no_host
     self.cfgs = sorted(set(self.cfgs))
     self.features = sorted(set(self.features))
     self.codegens = sorted(set(self.codegens))
@@ -501,6 +494,8 @@ class Crate(object):
     pkg = self.main_src
     if pkg.startswith('.../'):  # keep only the main package name
       pkg = re.sub('/.*', '', pkg[4:])
+    elif pkg.startswith('/'):  # use relative path for a local package
+      pkg = os.path.relpath(pkg)
     if not self.features:
       return pkg
     return pkg + ' "' + ','.join(self.features) + '"'
@@ -599,18 +594,31 @@ class Crate(object):
       return name3
     return self.runner.claim_module_name(name1, self, 0)
 
+  def dump_srcs_list(self):
+    """Dump the srcs list, for defaults or regular modules."""
+    if len(self.srcs) > 1:
+      srcs = sorted(set(self.srcs))  # make a copy and dedup
+    else:
+      srcs = [self.main_src]
+    copy_out = self.runner.copy_out_module_name()
+    if copy_out:
+      srcs.append(':' + copy_out)
+    self.dump_android_property_list('srcs', '"%s"', srcs)
+
   def dump_defaults_module(self):
     """Dump a rust_defaults module to be shared by other modules."""
     name = self.build_default_name()
     self.defaults = name
     self.write('\nrust_defaults {')
     self.write('    name: "' + name + '",')
+    if self.runner.args.global_defaults:
+      self.write('    defaults: ["' + self.runner.args.global_defaults + '"],')
     self.write('    crate_name: "' + self.crate_name + '",')
     if len(self.srcs) == 1:  # only one source file; share it in defaults
       self.default_srcs = True
       if self.has_warning and not self.cap_lints:
         self.write('    // has rustc warnings')
-      self.write('    srcs: ["' + self.main_src + '"],')
+      self.dump_srcs_list()
     if 'test' in self.crate_types:
       self.write('    test_suites: ["general-tests"],')
       self.write('    auto_gen_config: true,')
@@ -773,10 +781,15 @@ class Crate(object):
       self.write('        ' + (fmt % escape_quotes(v)) + ',')
 
   def dump_android_property_list(self, name, fmt, values):
-    if values:
+    if not values:
+      return
+    if len(values) > 1:
       self.write('    ' + name + ': [')
       self.dump_android_property_list_items(fmt, values)
       self.write('    ],')
+    else:
+      self.write('    ' + name + ': [' +
+                 (fmt % escape_quotes(values[0])) + '],')
 
   def dump_android_core_properties(self):
     """Dump the module header, name, stem, etc."""
@@ -784,19 +797,18 @@ class Crate(object):
     # see properties shared by dump_defaults_module
     if self.defaults:
       self.write('    defaults: ["' + self.defaults + '"],')
+    elif self.runner.args.global_defaults:
+      self.write('    defaults: ["' + self.runner.args.global_defaults + '"],')
     if self.stem != self.module_name:
       self.write('    stem: "' + self.stem + '",')
     if self.has_warning and not self.cap_lints and not self.default_srcs:
       self.write('    // has rustc warnings')
-    if self.host_supported and self.device_supported:
+    if self.host_supported and self.device_supported and self.module_type != 'rust_proc_macro':
       self.write('    host_supported: true,')
     if not self.defaults:
       self.write('    crate_name: "' + self.crate_name + '",')
-    if len(self.srcs) > 1:
-      self.srcs = sorted(set(self.srcs))
-      self.dump_android_property_list('srcs', '"%s"', self.srcs)
-    elif not self.default_srcs:
-      self.write('    srcs: ["' + self.main_src + '"],')
+    if not self.default_srcs:
+      self.dump_srcs_list()
     if 'test' in self.crate_types and not self.defaults:
       # self.root_pkg can have multiple test modules, with different *_tests[n]
       # names, but their executables can all be installed under the same _tests
@@ -1023,6 +1035,8 @@ class Runner(object):
     self.dry_run = not args.run
     self.skip_cargo = args.skipcargo
     self.cargo_path = './cargo'  # path to cargo, will be set later
+    self.checked_out_files = False  # to check only once
+    self.build_out_files = []  # output files generated by build.rs
     # All cc/ar objects, crates, dependencies, and warning files
     self.cc_objects = list()
     self.pkg_obj2cc = {}
@@ -1040,18 +1054,14 @@ class Runner(object):
     if args.cargo:
       self.cargo = ['clean'] + args.cargo
     else:
-      self.cargo = ['clean', 'build']
-      if args.no_host:  # do not run "cargo build" for host
-        self.cargo = ['clean']
       default_target = '--target x86_64-unknown-linux-gnu'
-      if args.device:
-        self.cargo.append('build ' + default_target)
-        if args.tests:
-          if not args.no_host:
-            self.cargo.append('build --tests')
-          self.cargo.append('build --tests ' + default_target)
-      elif args.tests and not args.no_host:
-        self.cargo.append('build --tests')
+      # Use the same target for both host and default device builds.
+      # Same target is used as default in host x86_64 Android compilation.
+      # Note: b/169872957, prebuilt cargo failed to build vsock
+      # on x86_64-unknown-linux-musl systems.
+      self.cargo = ['clean', 'build ' + default_target]
+      if args.tests:
+        self.cargo.append('build --tests ' + default_target)
 
   def setup_cargo_path(self):
     """Find cargo in the --cargo_bin or prebuilt rust bin directory."""
@@ -1105,19 +1115,75 @@ class Runner(object):
         rust_version = version
     return '.'.join(rust_version)
 
+  def find_out_files(self):
+    # list1 has build.rs output for normal crates
+    list1 = glob.glob(TARGET_TMP + '/*/*/build/' + self.root_pkg + '-*/out/*')
+    # list2 has build.rs output for proc-macro crates
+    list2 = glob.glob(TARGET_TMP + '/*/build/' + self.root_pkg + '-*/out/*')
+    return list1 + list2
+
+  def copy_out_files(self):
+    """Copy build.rs output files to ./out and set up build_out_files."""
+    if self.checked_out_files:
+      return
+    self.checked_out_files = True
+    cargo_out_files = self.find_out_files()
+    out_files = set()
+    if cargo_out_files:
+      os.makedirs('out', exist_ok=True)
+    for path in cargo_out_files:
+      file_name = path.split('/')[-1]
+      out_files.add(file_name)
+      shutil.copy(path, 'out/' + file_name)
+    self.build_out_files = sorted(out_files)
+
+  def has_used_out_dir(self):
+    """Returns true if env!("OUT_DIR") is found."""
+    return 0 == os.system('grep -rl --exclude build.rs --include \\*.rs' +
+                          ' \'env!("OUT_DIR")\' * > /dev/null')
+
+  def copy_out_module_name(self):
+    if self.args.copy_out and self.build_out_files:
+      return 'copy_' + self.root_pkg + '_build_out'
+    else:
+      return ''
+
+  def dump_copy_out_module(self, outf):
+    """Output the genrule module to copy out/* to $(genDir)."""
+    copy_out = self.copy_out_module_name()
+    if not copy_out:
+      return
+    outf.write('\ngenrule {\n')
+    outf.write('    name: "' + copy_out + '",\n')
+    outf.write('    srcs: ["out/*"],\n')
+    outf.write('    cmd: "cp $(in) $(genDir)",\n')
+    if len(self.build_out_files) > 1:
+      outf.write('    out: [\n')
+      for f in self.build_out_files:
+        outf.write('        "' + f + '",\n')
+      outf.write('    ],\n')
+    else:
+      outf.write('    out: ["' + self.build_out_files[0] + '"],\n')
+    outf.write('}\n')
+
   def init_bp_file(self, name):
+    # name could be Android.bp or sub_dir_path/Android.bp
     if name not in self.bp_files:
       self.bp_files.add(name)
       with open(name, 'w') as outf:
         outf.write(ANDROID_BP_HEADER.format(args=' '.join(sys.argv[1:])))
+        # at most one copy_out module per .bp file
+        self.dump_copy_out_module(outf)
 
   def dump_test_mapping_files(self):
+    """Dump all TEST_MAPPING files."""
     if self.dry_run:
       print('Dry-run skip dump of TEST_MAPPING')
     else:
       for bp_file_name in self.test_mappings:
-        name = os.path.join(os.path.dirname(bp_file_name), 'TEST_MAPPING')
-        self.test_mappings[bp_file_name].dump(name)
+        if bp_file_name != '/dev/null':
+          name = os.path.join(os.path.dirname(bp_file_name), 'TEST_MAPPING')
+          self.test_mappings[bp_file_name].dump(name)
     return self
 
   def add_test(self, bp_file_name, test_name, host):
@@ -1163,16 +1229,39 @@ class Runner(object):
     """Calls cargo -v and save its output to ./cargo.out."""
     if self.skip_cargo:
       return self
-    cargo = './Cargo.toml'
-    if not os.access(cargo, os.R_OK):
-      print('ERROR: Cannot find or read', cargo)
+    cargo_toml = './Cargo.toml'
+    cargo_out = './cargo.out'
+    # Do not use Cargo.lock, because .bp rules are designed to
+    # run with "latest" crates avaialable on Android.
+    cargo_lock = './Cargo.lock'
+    cargo_lock_saved = './cargo.lock.saved'
+    had_cargo_lock = os.path.exists(cargo_lock)
+    if not os.access(cargo_toml, os.R_OK):
+      print('ERROR: Cannot find or read', cargo_toml)
       return self
-    if not self.dry_run and os.path.exists('cargo.out'):
-      os.remove('cargo.out')
-    cmd_tail = ' --target-dir ' + TARGET_TMP + ' >> cargo.out 2>&1'
+    if not self.dry_run:
+      if os.path.exists(cargo_out):
+        os.remove(cargo_out)
+      if not self.args.use_cargo_lock and had_cargo_lock:  # save it
+        os.rename(cargo_lock, cargo_lock_saved)
+    cmd_tail = ' --target-dir ' + TARGET_TMP + ' >> ' + cargo_out + ' 2>&1'
     # set up search PATH for cargo to find the correct rustc
     saved_path = os.environ['PATH']
     os.environ['PATH'] = os.path.dirname(self.cargo_path) + ':' + saved_path
+    # Add [workspace] to Cargo.toml if it is not there.
+    added_workspace = False
+    if self.args.add_workspace:
+      with open(cargo_toml, 'r') as in_file:
+        cargo_toml_lines = in_file.readlines()
+      found_workspace = '[workspace]\n' in cargo_toml_lines
+      if found_workspace:
+        print('### WARNING: found [workspace] in Cargo.toml')
+      else:
+        with open(cargo_toml, 'a') as out_file:
+          out_file.write('[workspace]\n')
+          added_workspace = True
+          if self.args.verbose:
+            print('### INFO: added [workspace] to Cargo.toml')
     for c in self.cargo:
       features = ''
       if c != 'clean':
@@ -1190,10 +1279,20 @@ class Runner(object):
       else:
         if self.args.verbose:
           print('Running:', cmd)
-        with open('cargo.out', 'a') as cargo_out:
-          cargo_out.write('### Running: ' + cmd + '\n')
+        with open(cargo_out, 'a') as out_file:
+          out_file.write('### Running: ' + cmd + '\n')
         os.system(cmd)
+    if added_workspace:  # restore original Cargo.toml
+      with open(cargo_toml, 'w') as out_file:
+        out_file.writelines(cargo_toml_lines)
+      if self.args.verbose:
+        print('### INFO: restored original Cargo.toml')
     os.environ['PATH'] = saved_path
+    if not self.dry_run:
+      if not had_cargo_lock:  # restore to no Cargo.lock state
+        os.remove(cargo_lock)
+      elif not self.args.use_cargo_lock:  # restore saved Cargo.lock
+        os.rename(cargo_lock_saved, cargo_lock)
     return self
 
   def dump_dependencies(self):
@@ -1226,12 +1325,32 @@ class Runner(object):
           outf.write('//  ' + short_out_name(pkg, obj) + ' => ' +
                      short_out_name(pkg, obj2cc[obj].src) + '\n')
 
+  def apply_patch(self):
+    """Apply local patch file if it is given."""
+    if self.args.patch:
+      if self.dry_run:
+        print('Dry-run skip patch file:', self.args.patch)
+      else:
+        if not os.path.exists(self.args.patch):
+          self.append_to_bp('ERROR cannot find patch file: ' + self.args.patch)
+          return self
+        if self.args.verbose:
+          print('### INFO: applying local patch file:', self.args.patch)
+        os.system('patch -s --no-backup-if-mismatch ./Android.bp ' +
+                  self.args.patch)
+    return self
+
   def gen_bp(self):
     """Parse cargo.out and generate Android.bp files."""
     if self.dry_run:
       print('Dry-run skip: read', CARGO_OUT, 'write Android.bp')
     elif os.path.exists(CARGO_OUT):
       self.find_root_pkg()
+      if self.args.copy_out:
+        self.copy_out_files()
+      elif self.find_out_files() and self.has_used_out_dir():
+        print('WARNING: ' + self.root_pkg + ' has cargo output files; ' +
+              'please rerun with the --copy-out flag.')
       with open(CARGO_OUT, 'r') as cargo_out:
         self.parse(cargo_out, 'Android.bp')
         self.crates.sort(key=get_module_name)
@@ -1358,7 +1477,8 @@ class Runner(object):
         if fpath[0] != '/':  # ignore absolute path
           self.warning_files.add(fpath)
       elif line.startswith('error: ') or line.startswith('error[E'):
-        self.errors += line
+        if not self.args.ignore_cargo_errors:
+          self.errors += line
       prev_warning = False
       rustc_line = new_rustc
     self.find_warning_owners()
@@ -1367,6 +1487,14 @@ class Runner(object):
 def parse_args():
   """Parse main arguments."""
   parser = argparse.ArgumentParser('cargo2android')
+  parser.add_argument(
+      '--add_workspace',
+      action='store_true',
+      default=False,
+      help=('append [workspace] to Cargo.toml before calling cargo,' +
+            ' to treat current directory as root of package source;' +
+            ' otherwise the relative source file path in generated' +
+            ' .bp file will be from the parent directory.'))
   parser.add_argument(
       '--cargo',
       action='append',
@@ -1377,6 +1505,14 @@ def parse_args():
       '--cargo_bin',
       type=str,
       help='use cargo in the cargo_bin directory instead of the prebuilt one')
+  parser.add_argument(
+      '--copy-out',
+      action='store_true',
+      default=False,
+      help=('only for root directory, ' +
+            'copy build.rs output to ./out/* and add a genrule to copy ' +
+            './out/* to genrule output; for crates with code pattern: ' +
+            'include!(concat!(env!("OUT_DIR"), "/<some_file>.rs"))'))
   parser.add_argument(
       '--debug',
       action='store_true',
@@ -1393,10 +1529,14 @@ def parse_args():
       default=False,
       help='run cargo also for a default device target')
   parser.add_argument(
-      '--no-host',
-      action='store_true',
-      default=False,
-      help='do not run cargo for the host; only for the device target')
+      '--features',
+      type=str,
+      help=('pass features to cargo build, ' +
+            'empty string means no default features'))
+  parser.add_argument(
+      '--global_defaults',
+      type=str,
+      help='add a defaults name to every module')
   parser.add_argument(
       '--host-first-multilib',
       action='store_true',
@@ -1404,16 +1544,30 @@ def parse_args():
       help=('add a compile_multilib:"first" property ' +
             'to Android.bp host modules.'))
   parser.add_argument(
-      '--features',
-      type=str,
-      help=('pass features to cargo build, ' +
-            'empty string means no default features'))
+      '--ignore-cargo-errors',
+      action='store_true',
+      default=False,
+      help='do not append cargo/rustc error messages to Android.bp')
+  parser.add_argument(
+      '--no-host',
+      action='store_true',
+      default=False,
+      help='do not run cargo for the host; only for the device target')
+  parser.add_argument(
+      '--no-subdir',
+      action='store_true',
+      default=False,
+      help='do not output anything for sub-directories')
   parser.add_argument(
       '--onefile',
       action='store_true',
       default=False,
       help=('output all into one ./Android.bp, default will generate ' +
             'one Android.bp per Cargo.toml in subdirectories'))
+  parser.add_argument(
+      '--patch',
+      type=str,
+      help='apply the given patch file to generated ./Android.bp')
   parser.add_argument(
       '--run',
       action='store_true',
@@ -1431,6 +1585,12 @@ def parse_args():
       default=False,
       help='run cargo build --tests after normal build')
   parser.add_argument(
+      '--use-cargo-lock',
+      action='store_true',
+      default=False,
+      help=('run cargo build with existing Cargo.lock ' +
+            '(used when some latest dependent crates failed)'))
+  parser.add_argument(
       '--verbose',
       action='store_true',
       default=False,
@@ -1447,7 +1607,7 @@ def main():
   args = parse_args()
   if not args.run:  # default is dry-run
     print(DRY_RUN_NOTE)
-  Runner(args).run_cargo().gen_bp().dump_test_mapping_files()
+  Runner(args).run_cargo().gen_bp().apply_patch().dump_test_mapping_files()
 
 
 if __name__ == '__main__':

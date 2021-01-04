@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { nanos_to_string } from './transform.js'
+import {nanos_to_string} from './transform.js';
 
 function transform_transaction(transaction, layerIdToName) {
   const transactions = [];
@@ -44,18 +44,21 @@ function transform_entry(entry, layerIdToName) {
   const time = nanos_to_string(timestamp);
 
   switch (type) {
-    case "transaction":
-      const origin = entry.transaction.origin;
+    case 'transaction':
 
       return Object.freeze({
         type,
+        // TODO: Rename to changes
         transactions: transform_transaction(entry.transaction, layerIdToName),
+        synchronous: entry.transaction.synchronous,
+        animation: entry.transaction.animation,
+        identifier: entry.transaction.id,
         time,
-        origin,
+        origin: entry.transaction.origin,
         timestamp,
       });
 
-    case "surfaceCreation":
+    case 'surfaceCreation':
       // NOTE: There is no break on purpose — we want to fall through to default
       layerIdToName[entry[type].id] = entry[type].name;
 
@@ -72,9 +75,9 @@ function transform_entry(entry, layerIdToName) {
 
 function transform_transaction_trace(entries) {
   const layerIdToName = {};
-  const data = entries.increment.map(entry => transform_entry(entry, layerIdToName));
+  const data = entries.increment.map((entry) => transform_entry(entry, layerIdToName));
 
-  return { children: data };
+  return {children: data};
 }
 
-export { transform_transaction_trace };
+export {transform_transaction_trace};
