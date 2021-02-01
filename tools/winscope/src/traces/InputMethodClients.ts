@@ -14,9 +14,20 @@
  * limitations under the License.
  */
 
-import { RootDisplayArea } from "../common"
-import DisplayArea from "./DisplayArea"
+import { FILE_TYPES, TRACE_TYPES } from '@/decode.js';
+import TraceBase from './TraceBase';
 
-RootDisplayArea.fromProto = DisplayArea.fromProto
+export default class InputMethodClients extends TraceBase {
+  imeTraceFileClients: any;
 
-export default DisplayArea
+  constructor(files) {
+    const imeTraceFileClients = files[FILE_TYPES.IME_TRACE_CLIENTS];
+    super(imeTraceFileClients.data, imeTraceFileClients.timeline, files);
+
+    this.imeTraceFileClients = imeTraceFileClients;
+  }
+
+  get type() {
+    return TRACE_TYPES.IME_CLIENTS;
+  }
+}

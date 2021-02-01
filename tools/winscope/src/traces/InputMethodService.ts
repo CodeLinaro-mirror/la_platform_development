@@ -14,32 +14,20 @@
  * limitations under the License.
  */
 
-import { Task } from "../common"
+import { FILE_TYPES, TRACE_TYPES } from '@/decode.js';
+import TraceBase from './TraceBase';
 
-import { applyMixins } from '../mixin'
+export default class InputMethodService extends TraceBase {
+  imeTraceFileService: any;
 
-import WindowContainer from "./WindowContainer"
+  constructor(files) {
+    const imeTraceFileService = files[FILE_TYPES.IME_TRACE_SERVICE];
+    super(imeTraceFileService.data, imeTraceFileService.timeline, files);
 
-export class TaskMixin {
-  get kind() {
-    return "Task"
+    this.imeTraceFileService = imeTraceFileService;
   }
 
-  static fromProto(proto) {
-    const windowContainer = WindowContainer.fromProto(proto.windowContainer,
-                                                      null)
-
-    const task = new Task(windowContainer)
-
-    const obj = Object.assign({}, proto)
-    delete obj.windowContainer
-    Object.assign(obj, windowContainer.obj)
-    task.attachObject(obj)
-
-    return task
+  get type() {
+    return TRACE_TYPES.IME_SERVICE;
   }
 }
-
-applyMixins(Task, [TaskMixin])
-
-export default Task

@@ -89,7 +89,10 @@
         <div class="trace-config" v-for="traceKey in Object.keys(TRACE_CONFIG)" :key="traceKey">
             <h4>{{TRACES[traceKey].name}} config</h4>
             <div class="selection">
-              <md-checkbox class="md-primary" v-for="config in TRACE_CONFIG[traceKey]" :key="config" v-model="adbStore[config]">{{config}}</md-checkbox>
+              <md-checkbox class="md-primary" v-for="config in TRACE_CONFIG[traceKey]" :key="config" v-model="adbStore[config]">
+                {{config.name}}
+                <md-tooltip md-direction="bottom"> {{config.tooltip}}</md-tooltip>
+              </md-checkbox>
             </div>
         </div>
         <md-button class="md-primary trace-btn" @click="startTrace">Start trace</md-button>
@@ -142,7 +145,7 @@ const STATES = {
   LOAD_DATA: 8,
 };
 
-const WINSCOPE_PROXY_VERSION = '0.7';
+const WINSCOPE_PROXY_VERSION = '0.9';
 const WINSCOPE_PROXY_URL = 'http://localhost:5544';
 const PROXY_ENDPOINTS = {
   DEVICES: '/devices/',
@@ -170,16 +173,28 @@ const TRACES = {
   'screen_recording': {
     name: 'Screen Recording',
   },
-  'ime_trace': {
-    name: 'Input Method',
+  'ime_trace_clients': {
+    name: 'Input Method Clients',
+  },
+  'ime_trace_service': {
+    name: 'Input Method Service',
+  },
+  'ime_trace_managerservice': {
+    name: 'Input Method Manager Service',
   },
 };
 
 const TRACE_CONFIG = {
   'layers_trace': [
-    'composition',
-    'metadata',
-    'hwc',
+    {name:'composition', tooltip:'Shows if the layer when through GPU or HWC composition. Also ' +
+    'includes state computed by the composition engine instead of deriving it in winscope. Enable' +
+    ' sync capture as well since this state cannot be safely accessed asynchronously.'},
+    {name:'metadata', tooltip:'Includes data mostly passed through to other consumers like ARC++'},
+    {name:'hwc', tooltip:'Includes HWC state'},
+    {name:'buffers', tooltip:'Adds a trace entry for every buffer update even if there are no ' +
+    ' geometry changes.'},
+    {name:'sync', tooltip:'Capture traces synchronously. This may affect performance but will not' +
+     'skip any trace entries and allows capturing composition state safely.'},
   ],
 };
 
@@ -204,7 +219,9 @@ const proxyFileTypeAdapter = {
   'proto_log': FILE_TYPES.PROTO_LOG,
   'system_ui_trace': FILE_TYPES.SYSTEM_UI,
   'launcher_trace': FILE_TYPES.LAUNCHER,
-  'ime_trace': FILE_TYPES.IME_TRACE,
+  'ime_trace_clients': FILE_TYPES.IME_TRACE_CLIENTS,
+  'ime_trace_service': FILE_TYPES.IME_TRACE_SERVICE,
+  'ime_trace_managerservice': FILE_TYPES.IME_TRACE_MANAGERSERVICE,
 };
 
 const CONFIGS = Object.keys(TRACE_CONFIG).flatMap((file) => TRACE_CONFIG[file]);

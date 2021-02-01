@@ -17,17 +17,17 @@
 import { FILE_TYPES, TRACE_TYPES } from '@/decode.js';
 import TraceBase from './TraceBase';
 
-export default class InputMethodEditor extends TraceBase {
-  imeTraceFile: any;
+export default class InputMethodManagerService extends TraceBase {
+  imeTraceFileManagerService: any;
 
   constructor(files) {
-    const imeTraceFile = files[FILE_TYPES.IME_TRACE];
-    super(imeTraceFile.data, imeTraceFile.timeline, files);
+    const imeTraceFileManagerService = files[FILE_TYPES.IME_TRACE_MANAGERSERVICE];
+    super(imeTraceFileManagerService.data, imeTraceFileManagerService.timeline, files);
 
-    this.imeTraceFile = imeTraceFile;
+    this.imeTraceFileManagerService = imeTraceFileManagerService;
   }
 
   get type() {
-    return TRACE_TYPES.IME;
+    return TRACE_TYPES.IME_MANAGERSERVICE;
   }
 }
