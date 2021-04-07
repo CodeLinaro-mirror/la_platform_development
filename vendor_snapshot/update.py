@@ -99,6 +99,8 @@ JSON_TO_BP = {
     'Sanitize': 'sanitize',
     'SanitizeMinimalDep': 'sanitize_minimal_dep',
     'SanitizeUbsanDep': 'sanitize_ubsan_dep',
+    # TODO(b/181815415) remove is_lldnk when possible
+    'IsLlndk': 'is_llndk',
     'Symlinks': 'symlinks',
     'InitRc': 'init_rc',
     'VintfFragments': 'vintf_fragments',
@@ -512,7 +514,8 @@ def get_ninja_inputs(ninja_binary, ninja_build_file, modules):
     return inputs
 
 
-def check_module_usage(install_dir, ninja_binary, ninja_file, goals, output):
+def check_module_usage(install_dir, ninja_binary, image, ninja_file, goals,
+                       output):
     all_installed_files = find_all_installed_files(install_dir)
     all_props_files = find_all_props_files(install_dir)
 
@@ -555,14 +558,14 @@ def check_module_usage(install_dir, ninja_binary, ninja_file, goals, output):
     for f, i in sorted(used_file_to_info.items()):
         logging.debug('{} {}'.format(f, i))
         for m in i:
-            key = 'n=%s,v=%s,a=%s,c=%s,h=%s' % m
             (name, variation, arch, is_cfi, is_header) = m
             if not is_header:
-                used_modules.add(key)
+                used_modules.add(name)
 
     with open(output, 'w') as f:
+        f.write('%s_SNAPSHOT_MODULES := \\\n' % image.upper())
         for m in sorted(used_modules):
-            f.write('%s\n' % m)
+            f.write('  %s \\\n' % m)
 
 def check_call(cmd):
     logging.debug('Running `{}`'.format(' '.join(cmd)))
@@ -738,7 +741,7 @@ def main():
             raise ValueError(
                 'Please provide --check-module-usage-output option.')
 
-        check_module_usage(install_dir, ninja_binary,
+        check_module_usage(install_dir, ninja_binary, args.image,
                            args.check_module_usage_ninja_file,
                            args.check_module_usage_goal,
                            args.check_module_usage_output)
@@ -764,6 +767,7 @@ def main():
                 'option.')
 
     snapshot_version = args.snapshot_version
+    raw_mode = args.image.strip().lower() == 'raw'
 
     if os.path.exists(install_dir):
         def remove_dir():
@@ -772,15 +776,16 @@ def main():
         if args.overwrite:
             remove_dir()
         else:
-            resp = input('Directory {} already exists. IT WILL BE REMOVED.\n'
-                         'Are you sure? (yes/no): '.format(install_dir))
-            if resp == 'yes':
-                remove_dir()
-            elif resp == 'no':
-                logging.info('Cancelled snapshot install.')
-                return
-            else:
-                raise ValueError('Did not understand: ' + resp)
+            if not raw_mode:
+                resp = input('Directory {} already exists. IT WILL BE REMOVED.\n'
+                             'Are you sure? (yes/no): '.format(install_dir))
+                if resp == 'yes':
+                    remove_dir()
+                elif resp == 'no':
+                    logging.info('Cancelled snapshot install.')
+                    return
+                else:
+                    raise ValueError('Did not understand: ' + resp)
     check_call(['mkdir', '-p', install_dir])
 
     if args.vndk_dir:
@@ -797,7 +802,9 @@ def main():
         local_dir=local,
         symlink=args.symlink,
         install_dir=install_dir)
-    gen_bp_files(args.image, vndk_dir, install_dir, snapshot_version)
+
+    if not raw_mode:
+        gen_bp_files(args.image, vndk_dir, install_dir, snapshot_version)
 
 if __name__ == '__main__':
     main()
