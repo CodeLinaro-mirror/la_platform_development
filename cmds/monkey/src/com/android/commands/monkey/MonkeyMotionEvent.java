@@ -189,7 +189,9 @@ public abstract class MonkeyMotionEvent extends MonkeyEvent {
                     InputManager.INJECT_INPUT_EVENT_MODE_WAIT_FOR_RESULT)) {
                 return MonkeyEvent.INJECT_FAIL;
             }
-        } finally {
+        } catch (Exception re) {
+            /* ignore */
+        }finally {
             me.recycle();
         }
         return MonkeyEvent.INJECT_SUCCESS;
