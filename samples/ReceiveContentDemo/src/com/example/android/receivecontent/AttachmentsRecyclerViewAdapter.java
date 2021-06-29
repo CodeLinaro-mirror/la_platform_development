@@ -25,7 +25,6 @@ import androidx.appcompat.widget.AppCompatImageView;
 import androidx.recyclerview.widget.RecyclerView;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 
 final class AttachmentsRecyclerViewAdapter extends
@@ -48,10 +47,6 @@ final class AttachmentsRecyclerViewAdapter extends
 
     public void addAttachment(Uri uri) {
         mAttachments.add(uri);
-    }
-
-    public void addAttachments(Collection<Uri> uris) {
-        mAttachments.addAll(uris);
     }
 
     public void clearAttachments() {

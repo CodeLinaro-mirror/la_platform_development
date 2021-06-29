@@ -18,7 +18,6 @@ package com.example.android.receivecontent;
 
 import android.content.ClipData;
 import android.content.ClipDescription;
-import android.net.Uri;
 import android.util.Pair;
 import android.view.ContentInfo;
 
@@ -71,16 +70,5 @@ final class Utils {
             clip.addItem(items.get(i));
         }
         return clip;
-    }
-
-    public static List<Uri> collectUris(ClipData clip) {
-        List<Uri> uris = new ArrayList<>(clip.getItemCount());
-        for (int i = 0; i < clip.getItemCount(); i++) {
-            Uri uri = clip.getItemAt(i).getUri();
-            if (uri != null) {
-                uris.add(uri);
-            }
-        }
-        return uris;
     }
 }
