@@ -102,9 +102,11 @@ JSON_TO_BP = {
     # TODO(b/181815415) remove is_lldnk when possible
     'IsLlndk': 'is_llndk',
     'Symlinks': 'symlinks',
+    'StaticExecutable': 'static_executable',
     'InitRc': 'init_rc',
     'VintfFragments': 'vintf_fragments',
     'SharedLibs': 'shared_libs',
+    'StaticLibs': 'static_libs',
     'RuntimeLibs': 'runtime_libs',
     'Required': 'required',
 }
