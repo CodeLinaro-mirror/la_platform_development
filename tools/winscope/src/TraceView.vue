@@ -208,6 +208,10 @@ export default {
       this.selectedTree = this.getTransformedProperties(item);
       this.highlight = item.rect;
       this.lastSelectedStableId = item.stableId;
+      // Record analytics event
+      if (item.type || item.kind || item.stableId) {
+        this.recordOpenedEntryEvent(item.type ?? item.kind ?? item.stableId);
+      }
       this.$emit('focus');
     },
     getTransformedProperties(item) {
@@ -350,7 +354,12 @@ export default {
     },
   },
   created() {
-    this.setData(this.file.data[this.file.selectedIndex ?? 0]);
+    const item = this.file.data[this.file.selectedIndex ?? 0];
+    // Record analytics event
+    if (item.type || item.kind || item.stableId) {
+      this.recordOpenTraceEvent(item.type ?? item.kind ?? item.stableId);
+    }
+    this.setData(item);
   },
   destroyed() {
     this.store.flickerTraceView = false;
@@ -428,11 +437,11 @@ function getFilter(filterString) {
   const negative = [];
   filterStrings.forEach((f) => {
     if (f.startsWith('!')) {
-      const str = f.substring(1);
-      negative.push((s) => s.indexOf(str) === -1);
+      const regex = new RegExp(f.substring(1), "i");
+      negative.push((s) => !regex.test(s));
     } else {
-      const str = f;
-      positive.push((s) => s.indexOf(str) !== -1);
+      const regex = new RegExp(f, "i");
+      positive.push((s) => regex.test(s));
     }
   });
   const filter = (item) => {
