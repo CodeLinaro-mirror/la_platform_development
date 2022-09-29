@@ -14,13 +14,14 @@ function transform_ime_trace_clients(entries) {
 function transform_entry_clients(entry) {
   return transform({
     obj: entry,
-    kind: 'entry',
+    kind: 'InputMethodClient entry',
     name: nanos_to_string(entry.elapsedRealtimeNanos) + " - " + entry.where,
     children: [
       [[entry.client], transform_client_dump]
     ],
     timestamp: entry.elapsedRealtimeNanos,
-    stableId: 'entry'
+    stableId: 'entry',
+    freeze: false,
   });
 }
 
@@ -28,9 +29,7 @@ function transform_client_dump(entry) {
   return transform({
     obj: transform_input_connection_call(entry),
     kind: 'Client',
-    name: '\n- methodId ' + entry?.inputMethodManager?.curId
-        + '\n- view ' + entry?.viewRootImpl?.view
-        + '\n- packageName ' + entry?.editorInfo?.packageName,
+    name: entry?.viewRootImpl?.view,
     children: [],
     stableId: 'client'
   });
@@ -50,13 +49,14 @@ function transform_ime_trace_service(entries) {
 function transform_entry_service(entry) {
   return transform({
     obj: entry,
-    kind: 'entry',
+    kind: 'InputMethodService entry',
     name: nanos_to_string(entry.elapsedRealtimeNanos) + " - " + entry.where,
     children: [
       [[entry.inputMethodService], transform_service_dump]
     ],
     timestamp: entry.elapsedRealtimeNanos,
-    stableId: 'entry'
+    stableId: 'entry',
+    freeze: false,
   });
 }
 
@@ -64,9 +64,7 @@ function transform_service_dump(entry) {
   return transform({
     obj: transform_input_connection_call(entry),
     kind: 'InputMethodService',
-    name: '\n- windowVisible ' + entry?.windowVisible
-        + '\n- decorViewVisible ' + entry?.decorViewVisible
-        + '\n- packageName ' + entry?.inputEditorInfo?.packageName,
+    name: '',
     children: [],
     stableId: 'service'
   });
@@ -86,13 +84,14 @@ function transform_ime_trace_managerservice(entries) {
 function transform_entry_managerservice(entry) {
   return transform({
     obj: entry,
-    kind: 'entry',
+    kind: 'InputMethodManagerService entry',
     name: nanos_to_string(entry.elapsedRealtimeNanos) + " - " + entry.where,
     children: [
       [[entry.inputMethodManagerService], transform_managerservice_dump]
     ],
     timestamp: entry.elapsedRealtimeNanos,
-    stableId: 'entry'
+    stableId: 'entry',
+    freeze: false,
   });
 }
 
@@ -100,10 +99,7 @@ function transform_managerservice_dump(entry) {
   return transform({
     obj: entry,
     kind: 'InputMethodManagerService',
-    name: '\n- methodId ' + entry?.curMethodId
-        + '\n- curFocusedWindow ' + entry?.curFocusedWindowName
-        + '\n- lastImeTargetWindow ' + entry?.lastImeTargetWindowName
-        + '\n- inputShown ' + entry?.inputShown,
+    name: '',
     children: [],
     stableId: 'managerservice'
   });

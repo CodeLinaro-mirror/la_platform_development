@@ -128,6 +128,7 @@ import {
   UndetectableFileType,
 } from './decode.js';
 import {WebContentScriptMessageType} from './utils/consts';
+import {combineWmSfWithImeDataIfExisting} from './ime_processing.js';
 
 export default {
   name: 'datainput',
@@ -373,9 +374,6 @@ export default {
 
           const selectedFile =
               this.getMostLikelyCandidateFile(dataType, files);
-          if (selectedFile.data) {
-            selectedFile.data = Object.freeze(selectedFile.data);
-          }
 
           this.$set(this.dataFiles, dataType, Object.freeze(selectedFile));
 
@@ -391,6 +389,10 @@ export default {
 
       if (tmpTraceName !== undefined) {
         this.traceName = tmpTraceName;
+      }
+
+      if (this.store.betaFeatures.newImePanels) {
+        combineWmSfWithImeDataIfExisting(this.dataFiles);
       }
     },
 
