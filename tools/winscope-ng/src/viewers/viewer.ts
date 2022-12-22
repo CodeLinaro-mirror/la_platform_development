@@ -15,12 +15,25 @@
  */
 import { TraceType } from "common/trace/trace_type";
 
+enum ViewType {
+  TAB,
+  OVERLAY
+}
+
+class View {
+  constructor(
+    public type: ViewType,
+    public dependencies: TraceType[],
+    public htmlElement: HTMLElement,
+    public title: string
+  ) {
+  }
+}
+
 interface Viewer {
-  //TODO: add TraceEntry data type
   notifyCurrentTraceEntries(entries: Map<TraceType, any>): void;
-  getView(): HTMLElement;
-  getTitle(): string;
+  getViews(): View[];
   getDependencies(): TraceType[];
 }
 
-export { Viewer };
+export {Viewer, View, ViewType};

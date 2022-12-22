@@ -13,8 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-const path = require('path');
-const HtmlWebpackPlugin = require('html-webpack-plugin');
+const path = require("path");
+const HtmlWebpackPlugin = require("html-webpack-plugin");
+const TerserPlugin = require("terser-webpack-plugin");
 
 module.exports = {
   resolve: {
@@ -23,12 +24,12 @@ module.exports = {
       "node_modules",
       "src",
       "kotlin_build",
-      path.resolve(__dirname, '../../..'),
+      path.resolve(__dirname, "../../.."),
     ]
   },
 
   resolveLoader: {
-    modules: ['node_modules', path.resolve(__dirname, 'loaders')],
+    modules: ["node_modules", path.resolve(__dirname, "loaders")],
   },
 
   module: {
@@ -46,12 +47,16 @@ module.exports = {
         use: ["style-loader", "css-loader"]
       },
       {
+        test: /\.s[ac]ss$/i,
+        use: ["style-loader", "css-loader", "sass-loader"]
+      },
+      {
         test: /\.proto$/,
-        loader: 'proto-loader',
+        loader: "proto-loader",
         options: {
           paths: [
-            path.resolve(__dirname, '../../..'),
-            path.resolve(__dirname, '../../../external/protobuf/src'),
+            path.resolve(__dirname, "../../.."),
+            path.resolve(__dirname, "../../../external/protobuf/src"),
           ]
         }
       },
@@ -64,5 +69,15 @@ module.exports = {
       inject: "body",
       inlineSource: ".(css|js)$",
     })
-  ]
-}
+  ],
+
+  optimization: {
+    minimizer: [
+      new TerserPlugin({
+        terserOptions: {
+          keep_fnames: true,
+        },
+      }),
+    ],
+  },
+};

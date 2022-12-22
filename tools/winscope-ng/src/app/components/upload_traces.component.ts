@@ -17,73 +17,120 @@ import { Component, Input, Output, EventEmitter, Inject, NgZone } from "@angular
 import { TraceCoordinator } from "app/trace_coordinator";
 import { TRACE_INFO } from "app/trace_info";
 import { LoadedTrace } from "app/loaded_trace";
+import { MatSnackBar } from "@angular/material/snack-bar";
+import { ParserErrorSnackBarComponent } from "./parser_error_snack_bar_component";
+import { ParserError } from "parsers/parser_factory";
 
 @Component({
   selector: "upload-traces",
   template: `
-      <mat-card-title id="title">Upload Traces</mat-card-title>
-      <mat-card-content>
-        <div
-          class="drop-box"
-          ref="drop-box"
-          (dragleave)="onFileDragOut($event)"
-          (dragover)="onFileDragIn($event)"
-          (drop)="onHandleFileDrop($event)"
-        >
-          <div id="inputfile">
-            <input
-              hidden
-              class="input-files"
-              id="fileDropRef"
-              type="file"
-              (change)="onInputFile($event)"
-              #fileDropRef
-              multiple
-            />
-            <h3 class="drop-info">Drag and drop</h3>
-            <h3 class="drop-info">or click to upload</h3>
-            <button mat-raised-button for="fileDropRef" (click)="fileDropRef.click()">
-              Choose File
-            </button>
-            <div *ngIf="this.loadedTraces.length > 0">
-              <button mat-raised-button class="load-btn" (click)="onLoadData()">Load Data</button>
-              <button mat-raised-button (click)="onClearData()">Clear All</button>
-            </div>
-          </div>
-        </div>
+    <mat-card class="upload-card">
+      <mat-card-title class="title">Upload Traces</mat-card-title>
 
-        <mat-list
-          class="uploaded-files"
-          *ngIf="this.loadedTraces.length > 0"
-        >
-        <mat-list-item *ngFor="let trace of loadedTraces">
-            <mat-icon>{{TRACE_INFO[trace.type].icon}}</mat-icon>
-            <span>{{trace.name}} ({{trace.type}})
-            </span>
-            <button
-              (click)="onRemoveTrace(trace)"
-              class="icon-button"
-            ><mat-icon>close</mat-icon>
+      <mat-card-content
+        class="drop-box"
+        ref="drop-box"
+        (dragleave)="onFileDragOut($event)"
+        (dragover)="onFileDragIn($event)"
+        (drop)="onHandleFileDrop($event)"
+        (click)="fileDropRef.click()"
+      >
+        <input
+          id="fileDropRef"
+          hidden
+          type="file"
+          multiple
+          #fileDropRef
+          (change)="onInputFile($event)"
+        />
+
+        <mat-list *ngIf="this.loadedTraces.length > 0" class="uploaded-files">
+          <mat-list-item *ngFor="let trace of loadedTraces">
+            <mat-icon matListIcon>
+              {{TRACE_INFO[trace.type].icon}}
+            </mat-icon>
+
+            <p matLine>
+              {{trace.name}} ({{TRACE_INFO[trace.type].name}})
+            </p>
+
+            <button color="primary" mat-icon-button (click)="onRemoveTrace($event, trace)">
+              <mat-icon>close</mat-icon>
             </button>
           </mat-list-item>
         </mat-list>
+
+        <div *ngIf="this.loadedTraces.length === 0" class="drop-info">
+          <p class="mat-body-1">
+            Drag your .winscope file(s) or click to upload
+          </p>
+        </div>
       </mat-card-content>
+
+      <div *ngIf="this.loadedTraces.length > 0" class="trace-actions-container">
+        <button color="primary" mat-raised-button class="load-btn" (click)="onLoadData()">
+          View traces
+        </button>
+
+        <button color="primary" mat-stroked-button for="fileDropRef" (click)="fileDropRef.click()">
+          Upload another file
+        </button>
+
+        <button color="primary" mat-stroked-button (click)="onClearData()">
+          Clear all
+        </button>
+      </div>
+    </mat-card>
   `,
   styles: [
-    ".drop-info{font-weight: normal; pointer-events: none;}",
+    `
+      .upload-card {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        overflow: auto;
+        margin: 10px;
+      }
+      .drop-box {
+        display: flex;
+        flex-direction: column;
+        overflow: auto;
+        border: 2px dashed var(--border-color);
+        cursor: pointer;
+      }
+      .uploaded-files {
+        flex: 400px;
+        padding: 0;
+      }
+      .drop-info {
+        flex: 400px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        pointer-events: none;
+      }
+      .trace-actions-container {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+    `
   ]
 })
 export class UploadTracesComponent {
-  @Input() traceCoordinator!: TraceCoordinator;
-
-  dataLoaded = false;
-
-  @Output() dataLoadedChange = new EventEmitter<boolean>();
-
-  constructor(@Inject(NgZone) private ngZone: NgZone) {}
-
   loadedTraces: LoadedTrace[] = [];
   TRACE_INFO = TRACE_INFO;
+  dataLoaded = false;
+
+  @Input() traceCoordinator!: TraceCoordinator;
+  @Output() dataLoadedChange = new EventEmitter<boolean>();
+
+  constructor(
+    @Inject(NgZone) private ngZone: NgZone,
+    @Inject(MatSnackBar) private snackBar: MatSnackBar
+  ) {}
 
   public async onInputFile(event: Event) {
     const files = this.getInputFiles(event);
@@ -91,19 +138,14 @@ export class UploadTracesComponent {
   }
 
   public async processFiles(files: File[]) {
-    await this.traceCoordinator.addTraces(files);
+    const unzippedFiles = await this.traceCoordinator.getUnzippedFiles(files);
+    const parserErrors = await this.traceCoordinator.addTraces(unzippedFiles);
+    if (parserErrors.length > 0) {
+      this.openTempSnackBar(parserErrors);
+    }
     this.ngZone.run(() => {
       this.loadedTraces = this.traceCoordinator.getLoadedTraces();
     });
-  }
-
-  //TODO: extend with support for multiple files, archives, etc...
-  private getInputFiles(event: Event): File[] {
-    const files: any = (event?.target as HTMLInputElement)?.files;
-    if (!files || !files[0]) {
-      return [];
-    }
-    return Array.from(files);
   }
 
   public onLoadData() {
@@ -128,7 +170,7 @@ export class UploadTracesComponent {
     e.stopPropagation();
   }
 
-  async onHandleFileDrop(e: DragEvent) {
+  public async onHandleFileDrop(e: DragEvent) {
     e.preventDefault();
     e.stopPropagation();
     const droppedFiles = e.dataTransfer?.files;
@@ -136,8 +178,25 @@ export class UploadTracesComponent {
     await this.processFiles(Array.from(droppedFiles));
   }
 
-  public onRemoveTrace(trace: LoadedTrace) {
+  public onRemoveTrace(event: MouseEvent, trace: LoadedTrace) {
+    event.preventDefault();
+    event.stopPropagation();
     this.traceCoordinator.removeTrace(trace.type);
     this.loadedTraces = this.loadedTraces.filter(loaded => loaded.type !== trace.type);
+  }
+
+  private openTempSnackBar(parserErrors: ParserError[]) {
+    this.snackBar.openFromComponent(ParserErrorSnackBarComponent, {
+      data: parserErrors,
+      duration: 7500,
+    });
+  }
+
+  private getInputFiles(event: Event): File[] {
+    const files: FileList | null = (event?.target as HTMLInputElement)?.files;
+    if (!files || !files[0]) {
+      return [];
+    }
+    return Array.from(files);
   }
 }

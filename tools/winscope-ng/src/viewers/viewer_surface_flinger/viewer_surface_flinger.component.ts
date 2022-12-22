@@ -15,47 +15,61 @@
  */
 import {
   Component,
-  Input
+  Input,
 } from "@angular/core";
 import { UiData } from "./ui_data";
 import { TRACE_INFO } from "app/trace_info";
 import { TraceType } from "common/trace/trace_type";
+import { PersistentStore } from "common/persistent_store";
 
 @Component({
   selector: "viewer-surface-flinger",
   template: `
-      <div fxLayout="row wrap" fxLayoutGap="10px grid" class="card-grid">
-        <mat-card class="rects-view">
-          <rects-view
-            [rects]="inputData?.rects ?? []"
-            [displayIds]="inputData?.displayIds ?? []"
-            [highlighted]="inputData?.highlighted ?? ''"
-            class="rects-view"
-          ></rects-view>
-        </mat-card>
-        <mat-card id="sf-hierarchy-view" class="hierarchy-view">
-          <hierarchy-view></hierarchy-view>
-        </mat-card>
-        <mat-card id="sf-properties-view" class="properties-view">
-          <properties-view></properties-view>
-        </mat-card>
-      </div>
+    <div class="card-grid">
+      <rects-view
+        class="rects-view"
+        title="Layers"
+        [rects]="inputData?.rects ?? []"
+        [highlightedItems]="inputData?.highlightedItems ?? []"
+        [displayIds]="inputData?.displayIds ?? []"
+      ></rects-view>
+      <mat-divider [vertical]="true"></mat-divider>
+      <hierarchy-view
+        class="hierarchy-view"
+        [tree]="inputData?.tree ?? null"
+        [dependencies]="inputData?.dependencies ?? []"
+        [highlightedItems]="inputData?.highlightedItems ?? []"
+        [pinnedItems]="inputData?.pinnedItems ?? []"
+        [store]="store"
+        [userOptions]="inputData?.hierarchyUserOptions ?? {}"
+      ></hierarchy-view>
+      <mat-divider [vertical]="true"></mat-divider>
+      <properties-view
+        class="properties-view"
+        [userOptions]="inputData?.propertiesUserOptions ?? {}"
+        [propertiesTree]="inputData?.propertiesTree ?? {}"
+        [selectedFlickerItem]="inputData?.selectedLayer ?? {}"
+        [propertyGroups]="true"
+        [isProtoDump]="true"
+      ></properties-view>
+    </div>
   `,
   styles: [
-    "@import 'https://fonts.googleapis.com/icon?family=Material+Icons';",
-    "mat-icon {margin: 5px}",
-    "viewer-surface-flinger {font-family: Arial, Helvetica, sans-serif;}",
-    ".trace-card-title {display: inline-block; vertical-align: middle;}",
-    ".header-button {background: none; border: none; display: inline-block; vertical-align: middle;}",
-    ".card-grid {width: 100%;height: 100%;display: flex;flex-direction: row;overflow: auto;}",
-    ".rects-view {font: inherit; flex: none !important;width: 400px;margin: 8px;}",
-    ".hierarchy-view, .properties-view {font: inherit; flex: 1;margin: 8px;min-width: 400px;min-height: 50rem;max-height: 50rem;}",
+    `
+      .rects-view, .hierarchy-view, .properties-view {
+        flex: 1;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        overflow: auto;
+      }
+    `,
   ]
 })
 export class ViewerSurfaceFlingerComponent {
-  @Input()
-    inputData?: UiData;
-
+  @Input() inputData: UiData | null = null;
+  @Input() store: PersistentStore = new PersistentStore();
+  @Input() active = false;
   TRACE_INFO = TRACE_INFO;
   TraceType = TraceType;
 }

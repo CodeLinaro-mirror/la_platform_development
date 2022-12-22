@@ -15,33 +15,59 @@
  */
 import {
   Component,
-  EventEmitter,
   Input,
-  Output
 } from "@angular/core";
 import {UiData} from "./ui_data";
+import { TRACE_INFO } from "app/trace_info";
+import { TraceType } from "common/trace/trace_type";
+import { PersistentStore } from "common/persistent_store";
 
 @Component({
   selector: "viewer-window-manager",
   template: `
-    <div class="viewer-window-manager">
-      <div class="title">Window Manager</div>
-      <div class="input-value">Input value: {{inputData?.text}}</div>
-      <div class="button"><button mat-icon-button (click)="generateOutputEvent($event)">Output event!</button></div>
-    </div>
-  `
+      <div class="card-grid">
+        <rects-view
+          class="rects-view"
+          title="Windows"
+          [rects]="inputData?.rects ?? []"
+          [displayIds]="inputData?.displayIds ?? []"
+          [highlightedItems]="inputData?.highlightedItems ?? []"
+        ></rects-view>
+        <mat-divider [vertical]="true"></mat-divider>
+        <hierarchy-view
+          class="hierarchy-view"
+          [tree]="inputData?.tree ?? null"
+          [dependencies]="inputData?.dependencies ?? []"
+          [highlightedItems]="inputData?.highlightedItems ?? []"
+          [pinnedItems]="inputData?.pinnedItems ?? []"
+          [store]="store"
+          [userOptions]="inputData?.hierarchyUserOptions ?? {}"
+        ></hierarchy-view>
+        <mat-divider [vertical]="true"></mat-divider>
+        <properties-view
+          class="properties-view"
+          [userOptions]="inputData?.propertiesUserOptions ?? {}"
+          [propertiesTree]="inputData?.propertiesTree ?? {}"
+          [isProtoDump]="true"
+        ></properties-view>
+      </div>
+  `,
+  styles: [
+    `
+      .rects-view, .hierarchy-view, .properties-view {
+        flex: 1;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        overflow: auto;
+      }
+    `,
+  ]
 })
 export class ViewerWindowManagerComponent {
-  @Input()
-    inputData?: UiData;
-
-  @Output()
-    outputEvent = new EventEmitter<DummyEvent>(); // or EventEmitter<void>()
-
-  public generateOutputEvent(event: MouseEvent) {
-    this.outputEvent.emit(new DummyEvent());
-  }
-}
-
-export class DummyEvent {
+  @Input() inputData: UiData | null = null;
+  @Input() store: PersistentStore = new PersistentStore();
+  @Input() active = false;
+  TRACE_INFO = TRACE_INFO;
+  TraceType = TraceType;
 }

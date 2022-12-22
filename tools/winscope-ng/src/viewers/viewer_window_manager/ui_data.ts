@@ -13,10 +13,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-class UiData {
-  constructor(public text: string) {
-    console.log("new UI data", text);
+import { HierarchyTreeNode, PropertiesTreeNode } from "viewers/common/ui_tree_utils";
+import { UserOptions } from "viewers/common/user_options";
+import { TraceType } from "common/trace/trace_type";
+import { Rectangle } from "viewers/common/rectangle";
+
+export class UiData {
+  dependencies: Array<TraceType>;
+  rects: Rectangle[] = [];
+  displayIds: number[] = [];
+  highlightedItems: Array<string> = [];
+  pinnedItems: Array<HierarchyTreeNode> = [];
+  hierarchyUserOptions: UserOptions = {};
+  propertiesUserOptions: UserOptions = {};
+  tree: HierarchyTreeNode | null = null;
+  propertiesTree: PropertiesTreeNode | null = null;
+
+  constructor(dependencies?: Array<TraceType>) {
+    this.dependencies = dependencies ?? [];
   }
 }
-
-export {UiData};

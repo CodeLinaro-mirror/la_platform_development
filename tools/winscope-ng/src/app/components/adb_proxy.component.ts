@@ -19,66 +19,84 @@ import { proxyClient, ProxyClient, ProxyState } from "trace_collection/proxy_cli
 @Component({
   selector: "adb-proxy",
   template: `
-    <div *ngIf="proxy.state===states.NO_PROXY">
-        <div id="icon-information">
-            <mat-icon class="adb-icon">error</mat-icon>
-            <span class="adb-info">Unable to connect to Winscope ADB proxy</span>
+    <ng-container [ngSwitch]="proxy.state">
+      <ng-container *ngSwitchCase="states.NO_PROXY">
+        <div class="further-adb-info-text">
+          <p class="mat-body-1">Launch the Winscope ADB Connect proxy to capture traces directly from your browser.</p>
+          <p class="mat-body-1">Python 3.5+ and ADB are required.</p>
+          <p class="mat-body-1">Run: <code>python3 $ANDROID_BUILD_TOP/development/tools/winscope-ng/src/adb/winscope_proxy.py</code></p>
+          <p class="mat-body-1">Or get it from the AOSP repository.</p>
         </div>
-        <div class="further-adb-info">
-          <p>Launch the Winscope ADB Connect proxy to capture traces directly from your browser.</p>
-          <p>Python 3.5+ and ADB are required.</p>
-          <p>Run:</p>
-          <pre>python3</pre>
-          <pre>$ANDROID_BUILD_TOP/development/tools/winscope-ng/src/adb/winscope_proxy.py</pre>
-          <p>Or get it from the AOSP repository.</p>
-        </div>
-        <div>
-          <button mat-raised-button>
-            <a href="{{downloadProxyUrl}}" target='_blank'>Download from AOSP</a>
-          </button>
-          <button mat-raised-button class="retry" (click)="restart()">Retry</button>
-        </div>
-    </div>
 
-    <div *ngIf="proxy.state===states.INVALID_VERSION">
-        <div id="icon-information">
+        <div class="further-adb-info-actions">
+          <button color="primary" mat-stroked-button (click)="downloadFromAosp()">Download from AOSP</button>
+          <button color="primary" mat-stroked-button class="retry" (click)="restart()">Retry</button>
+        </div>
+      </ng-container>
+
+      <ng-container *ngSwitchCase="states.INVALID_VERSION">
+        <div class="further-adb-info-text">
+          <p class="icon-information mat-body-1">
             <mat-icon class="adb-icon">update</mat-icon>
             <span class="adb-info">Your local proxy version is incompatible with Winscope.</span>
+          </p>
+          <p class="mat-body-1">Please update the proxy to version {{ proxyVersion }}.</p>
+          <p class="mat-body-1">Run: <code>python3 $ANDROID_BUILD_TOP/development/tools/winscope-ng/src/adb/winscope_proxy.py</code></p>
+          <p class="mat-body-1">Or get it from the AOSP repository.</p>
         </div>
-        <div class="further-adb-info">
-          <p>Please update the proxy to version {{ proxyVersion }}.</p>
-          <p>Run:</p>
-          <pre>python3</pre>
-          <pre>$ANDROID_BUILD_TOP/development/tools/winscope-ng/src/adb/winscope_proxy.py</pre>
-          <p>Or get it from the AOSP repository.</p>
-        </div>
-        <div>
-          <button mat-raised-button>
-            <a href="{{downloadProxyUrl}}" target='_blank'>Download from AOSP</a>
-          </button>
-          <button mat-raised-button class="retry" (click)="restart()">Retry</button>
-        </div>
-    </div>
 
-    <div *ngIf="proxy.state===states.UNAUTH">
-        <div id="icon-information">
-            <mat-icon class="adb-icon">lock</mat-icon>
-            <span class="adb-info">Proxy authorisation required</span>
+        <div class="further-adb-info-actions">
+          <button color="primary" mat-stroked-button (click)="downloadFromAosp()">Download from AOSP</button>
+          <button color="primary" mat-stroked-button class="retry" (click)="restart()">Retry</button>
         </div>
-        <div class="further-adb-info">
-          <p>Enter Winscope proxy token:</p>
-          <mat-form-field class="proxy-key-field">
+      </ng-container>
+
+      <ng-container *ngSwitchCase="states.UNAUTH">
+        <div class="further-adb-info-text">
+          <p class="icon-information mat-body-1">
+            <mat-icon class="adb-icon">lock</mat-icon>
+            <span class="adb-info">Proxy authorisation required.</span>
+          </p>
+          <p class="mat-body-1">Enter Winscope proxy token:</p>
+          <mat-form-field>
             <input matInput [(ngModel)]="proxyKeyItem" name="proxy-key"/>
           </mat-form-field>
-          <p>The proxy token is printed to console on proxy launch, copy and paste it above.</p>
+          <p class="mat-body-1">The proxy token is printed to console on proxy launch, copy and paste it above.</p>
         </div>
-        <div>
-          <button mat-raised-button class="retry" (click)="restart()">Connect</button>
-        </div>
-    </div>
 
+        <div class="further-adb-info-actions">
+          <button color="primary" mat-stroked-button class="retry" (click)="restart()">Connect</button>
+        </div>
+      </ng-container>
+
+      <ng-container *ngSwitchDefault></ng-container>
+    </ng-container>
   `,
-  styles: [".proxy-key-field {width: 30rem}"]
+  styles: [
+    `
+      .icon-information {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+      }
+      .further-adb-info-text {
+        display: flex;
+        flex-direction: column;
+        overflow-wrap: break-word;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+      .further-adb-info-actions {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .adb-info {
+        margin-left: 5px;
+      }
+    `
+  ]
 })
 export class AdbProxyComponent {
   @Input()
@@ -99,5 +117,9 @@ export class AdbProxyComponent {
     this.addKey.emit(this.proxyKeyItem);
     this.proxy.setState(this.states.CONNECTING);
     this.proxyChange.emit(this.proxy);
+  }
+
+  public downloadFromAosp() {
+    window.open(this.downloadProxyUrl, "_blank")?.focus();
   }
 }

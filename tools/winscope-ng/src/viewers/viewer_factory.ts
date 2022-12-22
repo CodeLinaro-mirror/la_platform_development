@@ -13,15 +13,30 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { TraceType } from "common/trace/trace_type";
-import { Viewer } from "./viewer";
-import { ViewerWindowManager } from "./viewer_window_manager/viewer_window_manager";
-import { ViewerSurfaceFlinger } from "./viewer_surface_flinger/viewer_surface_flinger";
+import {TraceType} from "common/trace/trace_type";
+import {Viewer} from "./viewer";
+import {ViewerInputMethodClients} from "./viewer_input_method_clients/viewer_input_method_clients";
+import {ViewerInputMethodService} from "./viewer_input_method_service/viewer_input_method_service";
+import {ViewerInputMethodManagerService} from "./viewer_input_method_manager_service/viewer_input_method_manager_service";
+import {ViewerProtoLog} from "./viewer_protolog/viewer_protolog";
+import {ViewerSurfaceFlinger} from "./viewer_surface_flinger/viewer_surface_flinger";
+import {ViewerWindowManager} from "./viewer_window_manager/viewer_window_manager";
+import {ViewerTransactions} from "./viewer_transactions/viewer_transactions";
+import {ViewerScreenRecording} from "./viewer_screen_recording/viewer_screen_recording";
 
 class ViewerFactory {
+  // Note:
+  // the final order of tabs/views in the UI corresponds the order of the
+  // respective viewers below
   static readonly VIEWERS = [
+    ViewerSurfaceFlinger,
     ViewerWindowManager,
-    ViewerSurfaceFlinger
+    ViewerInputMethodClients,
+    ViewerInputMethodManagerService,
+    ViewerInputMethodService,
+    ViewerTransactions,
+    ViewerProtoLog,
+    ViewerScreenRecording,
   ];
 
   public createViewers(activeTraceTypes: Set<TraceType>): Viewer[] {
@@ -31,6 +46,7 @@ class ViewerFactory {
       const areViewerDepsSatisfied = Viewer.DEPENDENCIES.every((traceType: TraceType) =>
         activeTraceTypes.has(traceType)
       );
+
       if (areViewerDepsSatisfied) {
         viewers.push(new Viewer());
       }
@@ -40,4 +56,4 @@ class ViewerFactory {
   }
 }
 
-export { ViewerFactory };
+export {ViewerFactory};

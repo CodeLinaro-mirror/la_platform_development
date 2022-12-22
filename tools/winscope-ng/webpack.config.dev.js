@@ -13,14 +13,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-const {merge} = require('webpack-merge');
-const configCommon = require('./webpack.config.common');
+const {merge} = require("webpack-merge");
+const configCommon = require("./webpack.config.common");
 
 const configDev = {
-  mode: 'development',
+  mode: "development",
   entry: {
     polyfills: "./src/polyfills.ts",
-    styles: "./src/styles.css",
+    styles: [
+      "./src/material-theme.scss",
+      "./src/styles.css"
+    ],
     app: "./src/main.dev.ts"
   },
   devtool: "source-map",

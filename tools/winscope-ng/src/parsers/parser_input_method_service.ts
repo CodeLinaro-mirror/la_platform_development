@@ -15,11 +15,14 @@
  */
 import {Timestamp, TimestampType} from "common/trace/timestamp";
 import {TraceType} from "common/trace/trace_type";
+import { TraceTreeNode } from "common/trace/trace_tree_node";
+import { TimeUtils } from "common/utils/time_utils";
+import { ImeUtils } from "viewers/common/ime_utils";
 import {Parser} from "./parser";
 import {InputMethodServiceTraceFileProto} from "./proto_types";
 
 class ParserInputMethodService extends Parser {
-  constructor(trace: Blob) {
+  constructor(trace: File) {
     super(trace);
     this.realToElapsedTimeOffsetNs = undefined;
   }
@@ -53,8 +56,25 @@ class ParserInputMethodService extends Parser {
     return undefined;
   }
 
-  override processDecodedEntry(entryProto: any): any {
-    return entryProto;
+  override processDecodedEntry(index: number, entryProto: TraceTreeNode): TraceTreeNode {
+    return {
+      name: TimeUtils.nanosecondsToHuman(entryProto.elapsedRealtimeNanos ?? 0) + " - " + entryProto.where,
+      kind: "InputMethodService entry",
+      children: [
+        {
+          obj: ImeUtils.transformInputConnectionCall(entryProto.inputMethodService),
+          kind: "InputMethodService",
+          name: "",
+          children: [],
+          stableId: "service",
+          id: "service",
+        }
+      ],
+      obj: entryProto,
+      stableId: "entry",
+      id: "entry",
+      elapsedRealtimeNanos: entryProto.elapsedRealtimeNanos,
+    };
   }
 
   private realToElapsedTimeOffsetNs: undefined|bigint;

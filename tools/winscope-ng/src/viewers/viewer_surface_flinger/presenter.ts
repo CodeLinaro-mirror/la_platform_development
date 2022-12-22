@@ -1,3 +1,4 @@
+
 /*
  * Copyright (C) 2022 The Android Open Source Project
  *
@@ -13,41 +14,107 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Rectangle, RectMatrix, RectTransform, UiData } from "viewers/viewer_surface_flinger/ui_data";
+import { UiData } from "./ui_data";
+import { Rectangle, RectMatrix, RectTransform } from "viewers/common/rectangle";
 import { TraceType } from "common/trace/trace_type";
+import { TreeUtils, FilterType } from "common/utils/tree_utils";
+import { UserOptions } from "viewers/common/user_options";
+import { HierarchyTreeNode, PropertiesTreeNode } from "viewers/common/ui_tree_utils";
+import { TreeGenerator } from "viewers/common/tree_generator";
+import { TreeTransformer } from "viewers/common/tree_transformer";
+import { Layer, LayerTraceEntry } from "common/trace/flickerlib/common";
 
 type NotifyViewCallbackType = (uiData: UiData) => void;
 
-class Presenter {
+export class Presenter {
   constructor(notifyViewCallback: NotifyViewCallbackType) {
     this.notifyViewCallback = notifyViewCallback;
-    this.uiData = new UiData("Initial UI data");
+    this.uiData = new UiData([TraceType.SURFACE_FLINGER]);
     this.notifyViewCallback(this.uiData);
   }
 
-  updateHighlightedRect(event: CustomEvent) {
-    this.highlighted = event.detail.layerId;
-    this.uiData.highlighted = this.highlighted;
-    console.log("changed highlighted rect: ", this.uiData.highlighted);
+  public updatePinnedItems(pinnedItem: HierarchyTreeNode) {
+    const pinnedId = `${pinnedItem.id}`;
+    if (this.pinnedItems.map(item => `${item.id}`).includes(pinnedId)) {
+      this.pinnedItems = this.pinnedItems.filter(pinned => `${pinned.id}` != pinnedId);
+    } else {
+      this.pinnedItems.push(pinnedItem);
+    }
+    this.updatePinnedIds(pinnedId);
+    this.uiData.pinnedItems = this.pinnedItems;
     this.notifyViewCallback(this.uiData);
   }
 
-  notifyCurrentTraceEntries(entries: Map<TraceType, any>) {
-    const entry = entries.get(TraceType.SURFACE_FLINGER);
-    this.uiData = new UiData("New surface flinger ui data");
-    const displayRects = entry.displays.map((display: any) => {
+  public updateHighlightedItems(id: string) {
+    if (this.highlightedItems.includes(id)) {
+      this.highlightedItems = this.highlightedItems.filter(hl => hl != id);
+    } else {
+      this.highlightedItems = []; //if multi-select surfaces implemented, remove this line
+      this.highlightedItems.push(id);
+    }
+    this.uiData.highlightedItems = this.highlightedItems;
+    this.notifyViewCallback(this.uiData);
+  }
+
+  public updateHierarchyTree(userOptions: UserOptions) {
+    this.hierarchyUserOptions = userOptions;
+    this.uiData.hierarchyUserOptions = this.hierarchyUserOptions;
+    this.uiData.tree = this.generateTree();
+    this.notifyViewCallback(this.uiData);
+  }
+
+  public filterHierarchyTree(filterString: string) {
+    this.hierarchyFilter = TreeUtils.makeNodeFilter(filterString);
+    this.uiData.tree = this.generateTree();
+    this.notifyViewCallback(this.uiData);
+  }
+
+  public updatePropertiesTree(userOptions: UserOptions) {
+    this.propertiesUserOptions = userOptions;
+    this.uiData.propertiesUserOptions = this.propertiesUserOptions;
+    this.updateSelectedTreeUiData();
+  }
+
+  public filterPropertiesTree(filterString: string) {
+    this.propertiesFilter = TreeUtils.makeNodeFilter(filterString);
+    this.updateSelectedTreeUiData();
+  }
+
+  public newPropertiesTree(selectedItem: HierarchyTreeNode) {
+    this.selectedHierarchyTree = selectedItem;
+    this.updateSelectedTreeUiData();
+  }
+
+  public notifyCurrentTraceEntries(entries: Map<TraceType, [any, any]>) {
+    this.uiData = new UiData();
+    this.uiData.hierarchyUserOptions = this.hierarchyUserOptions;
+    this.uiData.propertiesUserOptions = this.propertiesUserOptions;
+
+    const sfEntries = entries.get(TraceType.SURFACE_FLINGER);
+    if (sfEntries) {
+      [this.entry, this.previousEntry] = sfEntries;
+      if (this.entry) {
+        this.uiData.highlightedItems = this.highlightedItems;
+        this.uiData.rects = this.generateRects();
+        this.uiData.displayIds = this.displayIds;
+        this.uiData.tree = this.generateTree();
+      }
+    }
+    this.notifyViewCallback(this.uiData);
+  }
+
+  private generateRects(): Rectangle[] {
+    const displayRects = this.entry.displays.map((display: any) => {
       const rect = display.layerStackSpace;
       rect.label = display.name;
       rect.id = display.id;
       rect.displayId = display.layerStackId;
       rect.isDisplay = true;
-      rect.isVirtual = display.isVirtual;
+      rect.isVirtual = display.isVirtual ?? false;
       return rect;
     }) ?? [];
-    this.uiData.highlighted = this.highlighted;
-
     this.displayIds = [];
-    const rects = entry.visibleLayers
+    const rects = this.entry.visibleLayers
       .sort((a: any, b: any) => (b.absoluteZ > a.absoluteZ) ? 1 : (a.absoluteZ == b.absoluteZ) ? 0 : -1)
       .map((it: any) => {
         const rect = it.rect;
@@ -57,12 +124,41 @@ class Presenter {
         }
         return rect;
       });
-    this.uiData.rects = this.rectsToUiData(rects.concat(displayRects));
-    this.uiData.displayIds = this.displayIds;
+    return this.rectsToUiData(rects.concat(displayRects));
+  }
+
+  private updateSelectedTreeUiData() {
+    if (this.selectedHierarchyTree) {
+      this.uiData.propertiesTree = this.getTreeWithTransformedProperties(this.selectedHierarchyTree);
+      this.uiData.selectedLayer = this.selectedLayer;
+    }
     this.notifyViewCallback(this.uiData);
   }
 
-  rectsToUiData(rects: any[]): Rectangle[] {
+  private generateTree() {
+    if (!this.entry) {
+      return null;
+    }
+
+    const generator = new TreeGenerator(this.entry, this.hierarchyFilter, this.pinnedIds)
+      .setIsOnlyVisibleView(this.hierarchyUserOptions["onlyVisible"]?.enabled)
+      .setIsSimplifyNames(this.hierarchyUserOptions["simplifyNames"]?.enabled)
+      .setIsFlatView(this.hierarchyUserOptions["flat"]?.enabled)
+      .withUniqueNodeId();
+    let tree: HierarchyTreeNode | null;
+    if (!this.hierarchyUserOptions["showDiff"]?.enabled) {
+      tree = generator.generateTree();
+    } else {
+      tree = generator.compareWith(this.previousEntry)
+        .withModifiedCheck()
+        .generateFinalTreeWithDiff();
+    }
+    this.pinnedItems = generator.getPinnedItems();
+    this.uiData.pinnedItems = this.pinnedItems;
+    return tree;
+  }
+
+  private rectsToUiData(rects: any[]): Rectangle[] {
     const uiRects: Rectangle[] = [];
     rects.forEach((rect: any) => {
       let t = null;
@@ -86,37 +182,91 @@ class Presenter {
         };
       }
 
-      let isVisible = false, isDisplay = false;
-      if (rect.ref && rect.ref.isVisible) {
-        isVisible = rect.ref.isVisible;
-      }
-      if (rect.isDisplay) {
-        isDisplay = rect.isDisplay;
-      }
-
       const newRect: Rectangle = {
-        topLeft: {x: rect.left, y: rect.top},
+        topLeft: {x: rect.left, y: -rect.top},
         bottomRight: {x: rect.right, y: -rect.bottom},
         height: rect.height,
         width: rect.width,
         label: rect.label,
         transform: transform,
-        isVisible: isVisible,
-        isDisplay: isDisplay,
+        isVisible: rect.ref?.isVisible ?? false,
+        isDisplay: rect.isDisplay ?? false,
         ref: rect.ref,
         id: rect.id ?? rect.ref.id,
         displayId: rect.displayId ?? rect.ref.stackId,
-        isVirtual: rect.isVirtual
+        isVirtual: rect.isVirtual ?? false,
+        isClickable: !(rect.isDisplay ?? false)
       };
       uiRects.push(newRect);
     });
     return uiRects;
   }
 
+  private updatePinnedIds(newId: string) {
+    if (this.pinnedIds.includes(newId)) {
+      this.pinnedIds = this.pinnedIds.filter(pinned => pinned != newId);
+    } else {
+      this.pinnedIds.push(newId);
+    }
+  }
+
+  private getTreeWithTransformedProperties(selectedTree: HierarchyTreeNode): PropertiesTreeNode {
+    const transformer = new TreeTransformer(selectedTree, this.propertiesFilter)
+      .setOnlyProtoDump(true)
+      .setIsShowDefaults(this.propertiesUserOptions["showDefaults"]?.enabled)
+      .setIsShowDiff(this.propertiesUserOptions["showDiff"]?.enabled)
+      .setTransformerOptions({skip: selectedTree.skip})
+      .setProperties(this.entry)
+      .setDiffProperties(this.previousEntry);
+    this.selectedLayer = transformer.getOriginalFlickerItem(this.entry, selectedTree.stableId);
+    const transformedTree = transformer.transform();
+    return transformedTree;
+  }
+
   private readonly notifyViewCallback: NotifyViewCallbackType;
   private uiData: UiData;
-  private highlighted = "";
+  private hierarchyFilter: FilterType = TreeUtils.makeNodeFilter("");
+  private propertiesFilter: FilterType = TreeUtils.makeNodeFilter("");
+  private highlightedItems: Array<string> = [];
   private displayIds: Array<number> = [];
-}
+  private pinnedItems: Array<HierarchyTreeNode> = [];
+  private pinnedIds: Array<string> = [];
+  private selectedHierarchyTree: HierarchyTreeNode | null = null;
+  private selectedLayer: LayerTraceEntry | Layer | null = null;
+  private previousEntry: LayerTraceEntry | null = null;
+  private entry: LayerTraceEntry | null = null;
+  private hierarchyUserOptions: UserOptions = {
+    showDiff: {
+      name: "Show diff",
+      enabled: false
+    },
+    simplifyNames: {
+      name: "Simplify names",
+      enabled: true
+    },
+    onlyVisible: {
+      name: "Only visible",
+      enabled: false
+    },
+    flat: {
+      name: "Flat",
+      enabled: false
+    }
+  };
 
-export {Presenter};
+  private propertiesUserOptions: UserOptions = {
+    showDiff: {
+      name: "Show diff",
+      enabled: false
+    },
+    showDefaults: {
+      name: "Show defaults",
+      enabled: true,
+      tooltip: `
+                If checked, shows the value of all properties.
+                Otherwise, hides all properties whose value is
+                the default for its data type.
+              `
+    },
+  };
+}

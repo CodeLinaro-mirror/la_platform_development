@@ -13,8 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import {StringUtils} from "common/utils/string_utils";
+import {TimeUtils} from "common/utils/time_utils";
 import configJson from "../../../../../../frameworks/base/data/etc/services.core.protolog.json";
+
+class ProtoLogTraceEntry {
+  constructor(public messages: LogMessage[], public currentMessageIndex: number) {
+  }
+}
 
 class LogMessage {
   text: string;
@@ -45,7 +50,7 @@ class FormattedLogMessage extends LogMessage {
     );
     super(
       text,
-      StringUtils.nanosecondsToHuman(proto.elapsedRealtimeNanos),
+      TimeUtils.nanosecondsToHuman(proto.elapsedRealtimeNanos),
       "INVALID",
       "invalid",
       "",
@@ -57,7 +62,7 @@ class UnformattedLogMessage extends LogMessage {
   constructor(proto: any, message: any) {
     super(
       formatText(message.message, proto),
-      StringUtils.nanosecondsToHuman(proto.elapsedRealtimeNanos),
+      TimeUtils.nanosecondsToHuman(proto.elapsedRealtimeNanos),
       (<any>configJson).groups[message.group].tag,
       message.level,
       message.at,
@@ -133,4 +138,4 @@ function getParam<T>(arr: T[], idx: number): T {
   return arr[idx];
 }
 
-export {FormattedLogMessage, LogMessage, UnformattedLogMessage};
+export {FormattedLogMessage, LogMessage, ProtoLogTraceEntry, UnformattedLogMessage};

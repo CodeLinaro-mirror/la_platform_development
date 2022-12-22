@@ -20,7 +20,7 @@ import {Parser} from "./parser";
 import {ScreenRecordingTraceEntry} from "common/trace/screen_recording";
 
 class ParserScreenRecordingLegacy extends Parser {
-  constructor(trace: Blob) {
+  constructor(trace: File) {
     super(trace);
   }
 
@@ -45,7 +45,7 @@ class ParserScreenRecordingLegacy extends Parser {
     return decodedEntry;
   }
 
-  override processDecodedEntry(entry: Timestamp): ScreenRecordingTraceEntry {
+  override processDecodedEntry(index: number, entry: Timestamp): ScreenRecordingTraceEntry {
     const currentTimestamp = entry;
     const initialTimestamp = this.getTimestamps(TimestampType.ELAPSED)![0];
     const videoTimeSeconds =

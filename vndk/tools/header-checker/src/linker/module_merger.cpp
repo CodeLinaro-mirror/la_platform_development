@@ -63,7 +63,7 @@ MergeStatus ModuleMerger::LookupUserDefinedType(
   std::set<std::string> type_cache;
   repr::DiffPolicyOptions diff_policy_options(false);
   repr::AbiDiffHelper diff_helper(module_->type_graph_, addend.type_graph_,
-                                  diff_policy_options, &type_cache, nullptr);
+                                  diff_policy_options, &type_cache, {}, nullptr);
 
   // Compare each user-defined type with the latest input user-defined type.
   // If there is a match, re-use the existing user-defined type.
@@ -206,7 +206,8 @@ ModuleMerger::UpdateUDTypeAccounting(
   std::string added_type_id = addend_node->GetSelfType();
   auto type_id_it = module_->type_graph_.find(added_type_id);
   if (type_id_it != module_->type_graph_.end()) {
-    added_type_id = added_type_id + "#ODR:" + addend_compilation_unit_path;
+    added_type_id = repr::FormatMultiDefinitionTypeId(
+        added_type_id, addend_compilation_unit_path);
   }
 
   // Add the ud-type with type-id to the type_graph_, since if there are generic
@@ -390,7 +391,8 @@ MergeStatus ModuleMerger::MergeReferencingType(
           addend.GetCompilationUnitPath(final_referenced_type);
       // The path is empty for built-in types.
       if (compilation_unit_path != "") {
-        added_type_id = added_type_id + "#ODR:" + compilation_unit_path;
+        added_type_id = repr::FormatMultiDefinitionTypeId(
+            added_type_id, compilation_unit_path);
       }
     }
   }

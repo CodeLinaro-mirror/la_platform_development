@@ -20,7 +20,7 @@ import {WindowManagerTraceFileProto} from "./proto_types";
 import {WindowManagerState} from "common/trace/flickerlib/windows/WindowManagerState";
 
 class ParserWindowManager extends Parser {
-  constructor(trace: Blob) {
+  constructor(trace: File) {
     super(trace);
     this.realToElapsedTimeOffsetNs = undefined;
   }
@@ -54,7 +54,7 @@ class ParserWindowManager extends Parser {
     return undefined;
   }
 
-  override processDecodedEntry(entryProto: any): WindowManagerState {
+  override processDecodedEntry(index: number, entryProto: any): WindowManagerState {
     return WindowManagerState.fromProto(entryProto.windowManagerService, entryProto.elapsedRealtimeNanos, entryProto.where);
   }
 

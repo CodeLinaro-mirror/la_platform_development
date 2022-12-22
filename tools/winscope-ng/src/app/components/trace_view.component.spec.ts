@@ -13,12 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { CommonModule } from "@angular/common";
-import { ComponentFixture, TestBed } from "@angular/core/testing";
-import { TraceViewComponent } from "./trace_view.component";
-import { MatCardModule } from "@angular/material/card";
-import { CUSTOM_ELEMENTS_SCHEMA, NO_ERRORS_SCHEMA } from "@angular/core";
-import { TraceType } from "common/trace/trace_type";
+import {CommonModule} from "@angular/common";
+import {CUSTOM_ELEMENTS_SCHEMA, NO_ERRORS_SCHEMA} from "@angular/core";
+import {ComponentFixture, TestBed} from "@angular/core/testing";
+import {MatCardModule} from "@angular/material/card";
+import {MatDividerModule} from "@angular/material/divider";
+import {TraceViewComponent} from "./trace_view.component";
+import {ViewerStub} from "viewers/viewer_stub";
 
 describe("TraceViewComponent", () => {
   let fixture: ComponentFixture<TraceViewComponent>;
@@ -27,35 +28,86 @@ describe("TraceViewComponent", () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
+      declarations: [TraceViewComponent],
       imports: [
         CommonModule,
-        MatCardModule
+        MatCardModule,
+        MatDividerModule
       ],
-      declarations: [TraceViewComponent],
       schemas: [NO_ERRORS_SCHEMA, CUSTOM_ELEMENTS_SCHEMA]
     }).compileComponents();
     fixture = TestBed.createComponent(TraceViewComponent);
-    component = fixture.componentInstance;
     htmlElement = fixture.nativeElement;
-    component.dependencies = [TraceType.SURFACE_FLINGER, TraceType.WINDOW_MANAGER];
-    component.showTrace = true;
+    component = fixture.componentInstance;
+    component.viewers = [
+      new ViewerStub("Title0", "Content0"),
+      new ViewerStub("Title1", "Content1")
+    ];
+    component.ngOnChanges();
+    fixture.detectChanges();
   });
 
   it("can be created", () => {
+    fixture.detectChanges();
     expect(component).toBeTruthy();
   });
 
-  it("check that mat card title and contents are displayed", () => {
-    fixture.detectChanges();
-    const title = htmlElement.querySelector(".trace-card-title");
-    expect(title).toBeTruthy();
-    const header = title?.querySelector("trace-view-header");
-    expect(header).toBeTruthy();
+  it("creates viewer tabs", () => {
+    const tabs: NodeList = htmlElement.querySelectorAll(".tab");
+    expect(tabs.length).toEqual(2);
+    expect(tabs.item(0)!.textContent).toEqual("Title0");
+    expect(tabs.item(1)!.textContent).toEqual("Title1");
   });
 
-  it("check that card content is created", () => {
+  it("changes active view on click", () => {
+    const getVisibleTabContents = () => {
+      const contents: HTMLElement[] = [];
+      htmlElement
+        .querySelectorAll(".trace-view-content div")
+        .forEach(content => {
+          if ((content as HTMLElement).style.display != "none") {
+            contents.push(content as HTMLElement);
+          }
+        });
+      return contents;
+    };
+
+    const tabButtons = htmlElement.querySelectorAll(".tab");
+
+    // Initially tab 0
     fixture.detectChanges();
-    const content = htmlElement.querySelector(".trace-card-content") as HTMLElement;
-    expect(content).toBeTruthy();
+    let visibleTabContents = getVisibleTabContents();
+    expect(visibleTabContents.length).toEqual(1);
+    expect(visibleTabContents[0].innerHTML).toEqual("Content0");
+
+    // Switch to tab 1
+    tabButtons[1].dispatchEvent(new Event("click"));
+    fixture.detectChanges();
+    visibleTabContents = getVisibleTabContents();
+    expect(visibleTabContents.length).toEqual(1);
+    expect(visibleTabContents[0].innerHTML).toEqual("Content1");
+
+    // Switch to tab 0
+    tabButtons[0].dispatchEvent(new Event("click"));
+    fixture.detectChanges();
+    visibleTabContents = getVisibleTabContents();
+    expect(visibleTabContents.length).toEqual(1);
+    expect(visibleTabContents[0].innerHTML).toEqual("Content0");
+  });
+
+  it("emits event on download button click", () => {
+    const spy = spyOn(component.onDownloadTracesButtonClick, "emit");
+
+    const downloadButton: null|HTMLButtonElement =
+      htmlElement.querySelector(".save-button");
+    expect(downloadButton).toBeInstanceOf(HTMLButtonElement);
+
+    downloadButton?.dispatchEvent(new Event("click"));
+    fixture.detectChanges();
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    downloadButton?.dispatchEvent(new Event("click"));
+    fixture.detectChanges();
+    expect(spy).toHaveBeenCalledTimes(2);
   });
 });

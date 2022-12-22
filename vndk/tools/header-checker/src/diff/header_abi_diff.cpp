@@ -66,8 +66,7 @@ static llvm::cl::opt<bool> advice_only(
 
 static llvm::cl::opt<bool> elf_unreferenced_symbol_errors(
     "elf-unreferenced-symbol-errors",
-    llvm::cl::desc("Display erors on removal of elf symbols, unreferenced by"
-                   "metadata in exported headers."),
+    llvm::cl::desc("This option is deprecated and has no effect."),
     llvm::cl::Optional, llvm::cl::cat(header_checker_category));
 
 static llvm::cl::opt<bool> check_all_apis(
@@ -139,6 +138,11 @@ static llvm::cl::opt<std::string> target_version(
     llvm::cl::init("current"), llvm::cl::Optional,
     llvm::cl::cat(header_checker_category));
 
+static llvm::cl::list<std::string> ignore_linker_set_keys(
+    "ignore-linker-set-key",
+    llvm::cl::desc("Ignore a specific type or function in the comparison."),
+    llvm::cl::ZeroOrMore, llvm::cl::cat(header_checker_category));
+
 static std::set<std::string> LoadIgnoredSymbols(std::string &symbol_list_path) {
   std::ifstream symbol_ifstream(symbol_list_path);
   std::set<std::string> ignored_symbols;
@@ -161,6 +165,9 @@ static std::string GetConfigFilePath(const std::string &dump_file_path) {
 }
 
 static void UpdateFlags(const ConfigSection &section) {
+  for (auto &&i : section.GetIgnoredLinkerSetKeys()) {
+    ignore_linker_set_keys.push_back(i);
+  }
   for (auto &&p : section) {
     auto &&key = p.first;
     bool value_bool = p.second;
@@ -197,17 +204,24 @@ static void ReadConfigFile(const std::string &config_file_path) {
   }
 }
 
-static const char kWarn[] = "\033[36;1mwarning: \033[0m";
-static const char kError[] = "\033[31;1merror: \033[0m";
-
-bool ShouldEmitWarningMessage(CompatibilityStatusIR status) {
-  return ((!allow_extensions &&
-           (status & CompatibilityStatusIR::Extension)) ||
-          (!allow_unreferenced_changes &&
-           (status & CompatibilityStatusIR::UnreferencedChanges)) ||
-          (!allow_unreferenced_elf_symbol_changes &&
-           (status & CompatibilityStatusIR::ElfIncompatible)) ||
-          (status & CompatibilityStatusIR::Incompatible));
+static std::string GetErrorMessage(CompatibilityStatusIR status) {
+  if (status & CompatibilityStatusIR::Incompatible) {
+    return "INCOMPATIBLE CHANGES";
+  }
+  if (!allow_unreferenced_elf_symbol_changes &&
+      (status & CompatibilityStatusIR::ElfIncompatible)) {
+    return "ELF Symbols not referenced by exported headers removed";
+  }
+  if (!allow_extensions && (status & CompatibilityStatusIR::Extension)) {
+    return "EXTENDING CHANGES";
+  }
+  if (!allow_unreferenced_changes &&
+      (status & CompatibilityStatusIR::UnreferencedChanges)) {
+    return "changes in exported headers, which are not directly referenced "
+           "by exported symbols. This MIGHT be an ABI breaking change due to "
+           "internal typecasts";
+  }
+  return "";
 }
 
 int main(int argc, const char **argv) {
@@ -223,64 +237,31 @@ int main(int argc, const char **argv) {
     ignored_symbols = LoadIgnoredSymbols(ignore_symbol_list);
   }
 
+  std::set<std::string> ignored_linker_set_keys_set(
+      ignore_linker_set_keys.begin(), ignore_linker_set_keys.end());
+
   DiffPolicyOptions diff_policy_options(consider_opaque_types_different);
 
   HeaderAbiDiff judge(lib_name, arch, old_dump, new_dump, compatibility_report,
-                      ignored_symbols, allow_adding_removing_weak_symbols,
-                      diff_policy_options, check_all_apis, text_format_old,
-                      text_format_new, text_format_diff);
+                      ignored_symbols, ignored_linker_set_keys_set,
+                      allow_adding_removing_weak_symbols, diff_policy_options,
+                      check_all_apis, text_format_old, text_format_new,
+                      text_format_diff);
 
   CompatibilityStatusIR status = judge.GenerateCompatibilityReport();
 
-  std::string status_str = "";
-  std::string unreferenced_change_str = "";
-  std::string error_or_warning_str = kWarn;
-
-  switch (status) {
-    case CompatibilityStatusIR::Incompatible:
-      error_or_warning_str = kError;
-      status_str = "INCOMPATIBLE CHANGES";
-      break;
-    case CompatibilityStatusIR::ElfIncompatible:
-      if (elf_unreferenced_symbol_errors) {
-        error_or_warning_str = kError;
-      }
-      status_str = "ELF Symbols not referenced by exported headers removed";
-      break;
-    default:
-      break;
-  }
-  if (status & CompatibilityStatusIR::Extension) {
-    if (!allow_extensions) {
-      error_or_warning_str = kError;
-    }
-    status_str = "EXTENDING CHANGES";
-  }
-  if (status & CompatibilityStatusIR::UnreferencedChanges) {
-    unreferenced_change_str = ", changes in exported headers, which are";
-    unreferenced_change_str += " not directly referenced by exported symbols.";
-    unreferenced_change_str += " This MIGHT be an ABI breaking change due to";
-    unreferenced_change_str += " internal typecasts.";
-  }
-
-  bool should_emit_warning_message = ShouldEmitWarningMessage(status);
-
-  if (should_emit_warning_message) {
+  std::string status_str = GetErrorMessage(status);
+  if (!status_str.empty()) {
     llvm::errs() << "******************************************************\n"
-                 << error_or_warning_str
-                 << "VNDK library: "
+                 << "\033[31;1merror: \033[0m"
                  << lib_name
                  << "'s ABI has "
                  << status_str
-                 << unreferenced_change_str
-                 << " Please check compatibility report at: "
+                 << ". Please check compatibility report at: "
                  << compatibility_report << "\n"
                  << "******************************************************\n";
   }
 
-  if (!advice_only && should_emit_warning_message) {
-    return status;
-  }
-
-  return CompatibilityStatusIR::Compatible;
+  return (advice_only || status_str.empty()) ? CompatibilityStatusIR::Compatible
+                                             : status;
 }

@@ -13,44 +13,102 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+import {ArrayUtils} from "common/utils/array_utils";
 import {Timestamp, TimestampType} from "common/trace/timestamp";
 import {TraceType} from "common/trace/trace_type";
 import {Parser} from "parsers/parser";
-import {ParserFactory} from "parsers/parser_factory";
+import {ParserError, ParserFactory} from "parsers/parser_factory";
 import { setTraces } from "trace_collection/set_traces";
 import { Viewer } from "viewers/viewer";
 import { ViewerFactory } from "viewers/viewer_factory";
 import { LoadedTrace } from "app/loaded_trace";
-import { TRACE_INFO } from "./trace_info";
+import { FileUtils } from "common/utils/file_utils";
+import { TRACE_INFO } from "app/trace_info";
+import { TimelineCoordinator, TimestampChangeObserver, Timeline} from "./timeline_coordinator";
+import { Inject, Injectable } from "@angular/core";
+import { ScreenRecordingTraceEntry } from "common/trace/screen_recording";
 
-class TraceCoordinator {
-  private parsers: Parser[];
-  private viewers: Viewer[];
+@Injectable()
+class TraceCoordinator implements TimestampChangeObserver {
+  private parsers: Parser[] = [];
+  private viewers: Viewer[] = [];
 
-  constructor() {
-    this.parsers = [];
-    this.viewers = [];
+  constructor(@Inject(TimelineCoordinator) private timelineCoordinator: TimelineCoordinator) {
+    this.timelineCoordinator.registerObserver(this);
   }
 
-  async addTraces(traces: Blob[]) {
+  public async addTraces(traces: File[]) {
     traces = this.parsers.map(parser => parser.getTrace()).concat(traces);
-    this.parsers = await new ParserFactory().createParsers(traces);
-    console.log("created parsers: ", this.parsers);
+    let parserErrors: ParserError[];
+    [this.parsers, parserErrors] = await new ParserFactory().createParsers(traces);
+    this.addAllTracesToTimelineCoordinator();
+    this.addScreenRecodingTimeMappingToTraceCooordinator();
+    return parserErrors;
   }
 
-  removeTrace(type: TraceType) {
+  public removeTrace(type: TraceType) {
     this.parsers = this.parsers.filter(parser => parser.getTraceType() !== type);
+    this.timelineCoordinator.removeTimeline(type);
   }
 
-  createViewers() {
+  private addAllTracesToTimelineCoordinator() {
+    const timelines: Timeline[] = this.parsers.map(parser => {
+      const timestamps = parser.getTimestamps(this.timestampTypeToUse());
+      if (timestamps === undefined) {
+        throw Error("Couldn't get timestamps from trace parser.");
+      }
+      return {traceType: parser.getTraceType(), timestamps: timestamps};
+    });
+
+    this.timelineCoordinator.setTimelines(timelines);
+  }
+
+  private addScreenRecodingTimeMappingToTraceCooordinator() {
+    const parser = this.getParserFor(TraceType.SCREEN_RECORDING);
+    if (parser === undefined) {
+      return;
+    }
+
+    const timestampMapping = new Map<Timestamp, number>();
+    let videoData: Blob|undefined = undefined;
+    for (const timestamp of parser.getTimestamps(this.timestampTypeToUse()) ?? []) {
+      const entry = parser.getTraceEntry(timestamp) as ScreenRecordingTraceEntry;
+      timestampMapping.set(timestamp, entry.videoTimeSeconds);
+      if (videoData === undefined) {
+        videoData = entry.videoData;
+      }
+    }
+
+    if (videoData === undefined) {
+      throw Error("No video data available!");
+    }
+
+    this.timelineCoordinator.setScreenRecordingData(videoData, timestampMapping);
+  }
+
+  private timestampTypeToUse() {
+    const priorityOrder = [TimestampType.REAL, TimestampType.ELAPSED];
+    for (const type of priorityOrder) {
+      if (this.parsers.every(it => it.getTimestamps(type) !== undefined)) {
+        return type;
+      }
+    }
+
+    throw Error("No common timestamp type across all traces");
+  }
+
+  public createViewers() {
     const activeTraceTypes = this.parsers.map(parser => parser.getTraceType());
-    console.log("active trace types: ", activeTraceTypes);
-
     this.viewers = new ViewerFactory().createViewers(new Set<TraceType>(activeTraceTypes));
-    console.log("created viewers: ", this.viewers);
+
+    // Make sure to update the viewers active entries as soon as they are created.
+    if (this.timelineCoordinator.currentTimestamp) {
+      this.onCurrentTimestampChanged(this.timelineCoordinator.currentTimestamp);
+    }
   }
 
-  getLoadedTraces(): LoadedTrace[] {
+  public getLoadedTraces(): LoadedTrace[] {
     return this.parsers.map((parser: Parser) => {
       const name = (<File>parser.getTrace()).name;
       const type = parser.getTraceType();
@@ -58,88 +116,112 @@ class TraceCoordinator {
     });
   }
 
-  getViews(): HTMLElement[] {
-    return this.viewers.map(viewer => viewer.getView());
+  public getParsers(): Parser[] {
+    return this.parsers;
   }
 
-  getViewers(): Viewer[] {
+  public getViewers(): Viewer[] {
     return this.viewers;
   }
 
-  loadedTraceTypes(): TraceType[] {
-    return this.parsers.map(parser => parser.getTraceType());
-  }
-
-  findParser(fileType: TraceType): Parser | null {
-    const parser = this.parsers.find(parser => parser.getTraceType() === fileType);
+  public findParser(traceType: TraceType): Parser | null {
+    const parser = this.parsers.find(parser => parser.getTraceType() === traceType);
     return parser ?? null;
   }
 
-  getTimestamps(): Timestamp[] {
-    for (const type of [TimestampType.REAL, TimestampType.ELAPSED]) {
-      const mergedTimestamps: Timestamp[] = [];
-
-      let isTypeProvidedByAllParsers = true;
-
-      for(const timestamps of this.parsers.map(parser => parser.getTimestamps(type))) {
-        if (timestamps === undefined) {
-          isTypeProvidedByAllParsers = false;
-          break;
-        }
-        mergedTimestamps.push(...timestamps!);
-      }
-
-      if (isTypeProvidedByAllParsers) {
-        const uniqueTimestamps = [... new Set<Timestamp>(mergedTimestamps)];
-        uniqueTimestamps.sort();
-        return uniqueTimestamps;
-      }
-    }
-
-    throw new Error("Failed to create aggregated timestamps (any type)");
+  public onCurrentTimestampChanged(timestamp: Timestamp|undefined) {
+    const entries = this.getCurrentTraceEntries(timestamp);
+    this.viewers.forEach(viewer => {
+      viewer.notifyCurrentTraceEntries(entries);
+    });
   }
 
-  notifyCurrentTimestamp(timestamp: Timestamp) {
+  private getCurrentTraceEntries(timestamp: Timestamp|undefined): Map<TraceType, any> {
     const traceEntries: Map<TraceType, any> = new Map<TraceType, any>();
+
+    if (!timestamp) {
+      return traceEntries;
+    }
 
     this.parsers.forEach(parser => {
       const targetTimestamp = timestamp;
       const entry = parser.getTraceEntry(targetTimestamp);
+      let prevEntry = null;
+
+      const parserTimestamps = parser.getTimestamps(timestamp.getType());
+      if (parserTimestamps === undefined) {
+        throw new Error(`Unexpected timestamp type ${timestamp.getType()}.`
+          + ` Not supported by parser for trace type: ${parser.getTraceType()}`);
+      }
+
+      const index = ArrayUtils.binarySearchLowerOrEqual(parserTimestamps, targetTimestamp);
+      if (index !== undefined && index > 0) {
+        prevEntry = parser.getTraceEntry(parserTimestamps[index-1]);
+      }
+
       if (entry !== undefined) {
-        traceEntries.set(parser.getTraceType(), entry);
+        traceEntries.set(parser.getTraceType(), [entry, prevEntry]);
       }
     });
 
-    this.viewers.forEach(viewer => {
-      viewer.notifyCurrentTraceEntries(traceEntries);
-    });
+    return traceEntries;
   }
 
-  clearData() {
-    this.getViews().forEach(view => view.remove());
+  public clearData() {
     this.parsers = [];
     this.viewers = [];
     setTraces.dataReady = false;
+    this.timelineCoordinator.clearData();
   }
 
-  saveTraces(traceTypes: TraceType[]) {
-    const blobs: Blob[] = [];
-    traceTypes.forEach(type => {
-      const trace = this.findParser(type)?.getTrace();
-      if (trace) {
-        blobs.push(trace);
+  public async getUnzippedFiles(files: File[]): Promise<File[]> {
+    const unzippedFiles: File[] = [];
+    for (let i=0; i<files.length; i++) {
+      if (FileUtils.isZipFile(files[i])) {
+        const unzippedFile = await FileUtils.unzipFile(files[i]);
+        unzippedFiles.push(...unzippedFile);
+      } else {
+        unzippedFiles.push(files[i]);
       }
-    });
-    blobs.forEach((blob, idx) => {
-      const a = document.createElement("a");
-      document.body.appendChild(a);
-      const url = window.URL.createObjectURL(blob);
-      a.href = url;
-      a.download = (blob as any).name ?? `${TRACE_INFO[traceTypes[idx]].name}.pb`;
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    });
+    }
+    return unzippedFiles;
+  }
+
+  public async getTraceForDownload(parser: Parser): Promise<File | null> {
+    const trace = parser.getTrace();
+    if (trace) {
+      const traceType = TRACE_INFO[parser.getTraceType()].name;
+      const name = traceType + "/" + FileUtils.removeDirFromFileName(trace.name);
+      const blob = await trace.arrayBuffer();
+      return new File([blob], name);
+    }
+    return null;
+  }
+
+  public async getAllTracesForDownload(): Promise<File[]> {
+    const traces: File[] = [];
+    for (let i=0; i < this.parsers.length; i++) {
+      const trace = await this.getTraceForDownload(this.parsers[i]);
+      if (trace) {
+        traces.push(trace);
+      }
+    }
+    return traces;
+  }
+
+  public getParserFor(traceType: TraceType): undefined|Parser {
+    const matchingParsers = this.getParsers()
+      .filter((parser) => parser.getTraceType() === traceType);
+
+    if (matchingParsers.length === 0) {
+      return undefined;
+    }
+
+    if (matchingParsers.length > 1) {
+      throw Error(`Too many matching parsers for trace type ${traceType}. `);
+    }
+
+    return matchingParsers[0];
   }
 }
 
