@@ -14,28 +14,38 @@
  * limitations under the License.
  */
 
+import { TimeUtils } from "common/utils/time_utils";
 import {
     KeyguardControllerState,
     RootWindowContainer,
     WindowManagerPolicy,
-    WindowManagerState
+    WindowManagerState,
+    WindowManagerTraceEntryBuilder
 } from "../common"
 
 import WindowContainer from "./WindowContainer"
 
-WindowManagerState.fromProto = function (proto: any, timestamp: number = 0, where: string = ""): WindowManagerState {
+WindowManagerState.fromProto = function (
+    proto: any,
+    elapsedTimestamp: bigint = 0n,
+    where: string = "",
+    realToElapsedTimeOffsetNs: bigint|undefined = undefined,
+    useElapsedTime = false,
+): WindowManagerState {
     var inputMethodWIndowAppToken = "";
     if (proto.inputMethodWindow != null) {
         proto.inputMethodWindow.hashCode.toString(16)
     };
 
-    const rootWindowContainer = createRootWindowContainer(proto.rootWindowContainer);
+    let parseOrder = 0;
+    const nextSeq = () => ++parseOrder;
+    const rootWindowContainer = createRootWindowContainer(proto.rootWindowContainer, nextSeq);
     const keyguardControllerState = createKeyguardControllerState(
         proto.rootWindowContainer.keyguardController);
     const policy = createWindowManagerPolicy(proto.policy);
 
-    const entry = new WindowManagerState(
-        where,
+    const entry = new WindowManagerTraceEntryBuilder(
+        `${elapsedTimestamp}`,
         policy,
         proto.focusedApp,
         proto.focusedDisplayId,
@@ -46,23 +56,27 @@ WindowManagerState.fromProto = function (proto: any, timestamp: number = 0, wher
         proto.rootWindowContainer.pendingActivities.map((it: any) => it.title),
         rootWindowContainer,
         keyguardControllerState,
-        /*timestamp */ `${timestamp}`
-    );
+        where,
+        `${realToElapsedTimeOffsetNs ?? 0}`,
+    ).build();
 
-    addAttributes(entry, proto);
+    addAttributes(entry, proto, realToElapsedTimeOffsetNs === undefined || useElapsedTime);
     return entry
 }
 
-function addAttributes(entry: WindowManagerState, proto: any) {
+function addAttributes(entry: WindowManagerState, proto: any, useElapsedTime = false) {
     entry.kind = entry.constructor.name;
-    // There no JVM/JS translation for Longs yet
-    entry.timestampMs = entry.timestamp.toString();
-    entry.rects = entry.windowStates.reverse().map((it: any) => it.rect);
     if (!entry.isComplete()) {
         entry.isIncompleteReason = entry.getIsIncompleteReason();
     }
     entry.proto = proto;
-    entry.shortName = entry.name;
+    if (useElapsedTime || entry.clockTimestamp == undefined) {
+        entry.name = TimeUtils.nanosecondsToHumanElapsed(BigInt(entry.elapsedTimestamp));
+        entry.shortName = entry.name;
+    } else {
+        entry.name = TimeUtils.nanosecondsToHumanReal(BigInt(entry.clockTimestamp));
+        entry.shortName = entry.name;
+    }
     entry.isVisible = true;
 }
 
@@ -84,11 +98,12 @@ function createWindowManagerPolicy(proto: any): WindowManagerPolicy {
     );
 }
 
-function createRootWindowContainer(proto: any): RootWindowContainer {
+function createRootWindowContainer(proto: any, nextSeq: () => number): RootWindowContainer {
     const windowContainer = WindowContainer.fromProto(
         /* proto */ proto.windowContainer,
-        /* childrenProto */ proto.windowContainer?.children?.reverse() ?? [],
-        /* isActivityInTree */ false
+        /* childrenProto */ proto.windowContainer?.children ?? [],
+        /* isActivityInTree */ false,
+        /* computedZ */ nextSeq
     );
 
     if (windowContainer == null) {

@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+import { TimeUtils } from 'common/utils/time_utils';
+
 // Imports all the compiled common Flicker library classes and exports them
 // as clean es6 modules rather than having them be commonjs modules
 
@@ -22,6 +24,8 @@ const WindowManagerTrace = require('flicker').com.android.server.wm.traces.
     common.windowmanager.WindowManagerTrace;
 const WindowManagerState = require('flicker').com.android.server.wm.traces.
     common.windowmanager.WindowManagerState;
+const WindowManagerTraceEntryBuilder = require('flicker').com.android.server.wm.
+    traces.common.windowmanager.WindowManagerTraceEntryBuilder;
 const Activity = require('flicker').com.android.server.wm.traces.common.
     windowmanager.windows.Activity;
 const Configuration = require('flicker').com.android.server.wm.traces.common.
@@ -90,15 +94,15 @@ const Region = require('flicker').com.android.server.wm.traces.common.region.Reg
 // Service
 const TaggingEngine = require('flicker').com.android.server.wm.traces.common.service.TaggingEngine;
 
-const EMPTY_BUFFER = new ActiveBuffer(0, 0, 0, 0);
-const EMPTY_COLOR3 = new Color3(-1, -1, -1);
-const EMPTY_COLOR = new Color(-1, -1, -1, 0);
-const EMPTY_RECT = new Rect(0, 0, 0, 0);
-const EMPTY_RECTF = new RectF(0, 0, 0, 0);
-const EMPTY_POINT = new Point(0, 0);
-const EMPTY_POINTF = new PointF(0, 0);
-const EMPTY_MATRIX22 = new Matrix22(0, 0, 0, 0, 0, 0);
-const EMPTY_MATRIX33 = new Matrix33(0, 0, 0, 0, 0, 0);
+const EMPTY_BUFFER = ActiveBuffer.Companion.EMPTY;
+const EMPTY_COLOR3 = Color3.Companion.EMPTY;
+const EMPTY_COLOR = Color.Companion.EMPTY;
+const EMPTY_RECT = Rect.Companion.EMPTY;
+const EMPTY_RECTF = RectF.Companion.EMPTY;
+const EMPTY_POINT = Point.Companion.EMPTY;
+const EMPTY_POINTF = PointF.Companion.EMPTY;
+const EMPTY_MATRIX22 = Matrix22.Companion.EMPTY;
+const EMPTY_MATRIX33 = Matrix33.Companion.identity(0, 0);
 const EMPTY_TRANSFORM = new Transform(0, EMPTY_MATRIX33);
 
 function toSize(proto) {
@@ -277,6 +281,7 @@ export {
   WindowManagerPolicy,
   WindowManagerTrace,
   WindowManagerState,
+  WindowManagerTraceEntryBuilder,
   // SF
   BaseLayerTraceEntry,
   Layer,

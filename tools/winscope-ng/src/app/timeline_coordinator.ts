@@ -29,7 +29,7 @@ export class TimelineCoordinator {
   private observers = new Set<TimestampChangeObserver>();
   private explicitlySetSelection: TimeRange|undefined = undefined;
   private videoData: Blob|undefined = undefined;
-  private screenRecordingTimeMapping = new Map<Timestamp, number>();
+  private screenRecordingTimeMapping: Map<Timestamp, number>|undefined = undefined;
   // The trace type the currently active view depends on
   private activeTraceTypes: TraceType[] = [];
 
@@ -81,12 +81,12 @@ export class TimelineCoordinator {
 
   public getActiveTimestampForTraceAt(type: TraceType, timestamp: Timestamp): TimestampWithIndex|undefined {
     if (timestamp.getType() !== this.timestampType) {
-      throw Error("Invalid timestampt type");
+      throw Error("Invalid timestamp type");
     }
 
     const timeline = this.timelines.get(type);
     if (timeline === undefined) {
-      throw Error("No timeline for requested trace type");
+      throw Error(`No timeline for requested trace type ${type}`);
     }
     const index = ArrayUtils.binarySearchLowerOrEqual(timeline, timestamp);
     if (index === undefined) {
@@ -96,9 +96,13 @@ export class TimelineCoordinator {
   }
 
   get fullRange() {
+    const timestamps = this.getAllUniqueTimestamps();
+    if (timestamps.length === 0) {
+      throw Error("Trying to get full range when there are no timestamps");
+    }
     return {
-      from: this.getAllTimestamps()[0],
-      to: this.getAllTimestamps()[this.getAllTimestamps().length - 1]
+      from: timestamps[0],
+      to: timestamps[timestamps.length - 1]
     };
   }
 
@@ -157,12 +161,17 @@ export class TimelineCoordinator {
     this.screenRecordingTimeMapping = timeMapping;
   }
 
+  public removeScreenRecordingData() {
+    this.videoData = undefined;
+    this.screenRecordingTimeMapping = undefined;
+  }
+
   public getVideoData(): Blob|undefined {
     return this.videoData;
   }
 
   public updateCurrentTimestamp(timestamp: Timestamp|undefined) {
-    if (this.getAllTimestamps().length === 0) {
+    if (this.getAllUniqueTimestamps().length === 0) {
       console.warn("Setting timestamp on traces with no timestamps/entries...");
       return;
     }
@@ -181,16 +190,26 @@ export class TimelineCoordinator {
     });
   }
 
-  public getAllTimestamps(): Timestamp[] {
-    return Array.from(this.timelines.values()).flatMap(num => num).sort();
+  public getAllUniqueTimestamps(): Timestamp[] {
+    const allTimestamps = Array.from(this.timelines.values()).flatMap(num => num).sort();
+    const uniqueTimestamps: Timestamp[] = [];
+
+    let prevTimestamp: Timestamp | undefined = undefined;
+    for (const timestamp of allTimestamps) {
+      if (prevTimestamp?.getValueNs() !== timestamp.getValueNs()) {
+        uniqueTimestamps.push(timestamp);
+      }
+      prevTimestamp = timestamp;
+    }
+    return uniqueTimestamps;
   }
 
   private getFirstTimestamp(): Timestamp|undefined {
-    if (this.getAllTimestamps().length === 0) {
+    if (this.getAllUniqueTimestamps().length === 0) {
       return undefined;
     }
 
-    return this.getAllTimestamps()[0];
+    return this.getAllUniqueTimestamps()[0];
   }
 
   public getPreviousTimestampFor(traceType: TraceType): Timestamp|undefined {
@@ -236,7 +255,7 @@ export class TimelineCoordinator {
       return undefined;
     }
 
-    return this.screenRecordingTimeMapping.get(latestScreenRecordingEntry);
+    return this.screenRecordingTimeMapping!.get(latestScreenRecordingEntry);
   }
 
   public clearData() {
