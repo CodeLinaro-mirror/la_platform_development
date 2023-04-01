@@ -32,10 +32,11 @@ import android.os.IBinder;
 import android.os.Trace;
 import android.service.voice.AlwaysOnHotwordDetector;
 import android.service.voice.AlwaysOnHotwordDetector.EventPayload;
+import android.service.voice.DetectorFailure;
 import android.service.voice.HotwordDetector;
 import android.service.voice.HotwordDetector.IllegalDetectorStateException;
 import android.service.voice.HotwordRejectedResult;
-import android.service.voice.SandboxedDetectionServiceBase;
+import android.service.voice.SandboxedDetectionInitializer;
 import android.service.voice.VisualQueryDetector;
 import android.service.voice.VoiceInteractionService;
 import android.util.Log;
@@ -138,7 +139,7 @@ public class SampleVoiceInteractionService extends VoiceInteractionService {
             @Override
             public void onVisualQueryDetectionServiceInitialized(int status) {
                 Log.i(TAG, "VQD init: "+ status);
-                if (status == SandboxedDetectionServiceBase.INITIALIZATION_STATUS_SUCCESS) {
+                if (status == SandboxedDetectionInitializer.INITIALIZATION_STATUS_SUCCESS) {
                     try {
                         mVisualQueryDetector.startRecognition();
                     } catch (IllegalDetectorStateException e) {
@@ -158,7 +159,7 @@ public class SampleVoiceInteractionService extends VoiceInteractionService {
             }
 
             @Override
-            public void onError() {
+            public void onFailure(@NonNull DetectorFailure detectorFailure) {
                 Log.i(TAG, "VQD error");
             }
         };
